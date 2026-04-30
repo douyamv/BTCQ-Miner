@@ -1,0 +1,26 @@
+# Node
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# Build output
+dist/
+out/
+release/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 用户敏感
+wallet.json
+*.keystore
+.env
+
+# 日志
+*.log

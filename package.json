@@ -1,0 +1,53 @@
+{
+  "name": "btcq-miner",
+  "version": "0.1.0",
+  "description": "BTCQ 比特币量子 — 跨平台量子挖矿桌面客户端",
+  "main": "main.js",
+  "author": "douyamv",
+  "license": "MIT",
+  "homepage": "https://github.com/douyamv/BTCQ",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/douyamv/BTCQ-Miner.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "build:all": "electron-builder -mwl"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "@noble/secp256k1": "^2.1.0",
+    "js-sha3": "^0.9.3"
+  },
+  "build": {
+    "appId": "com.douyamv.btcq-miner",
+    "productName": "BTCQ Miner",
+    "files": [
+      "main.js",
+      "preload.js",
+      "miner.js",
+      "renderer/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "icon": "icons/icon.icns",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "icon": "icons/icon.ico",
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "icon": "icons/icon.png",
+      "target": ["AppImage", "deb"],
+      "category": "Office"
+    }
+  }
+}
