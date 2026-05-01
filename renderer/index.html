@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://* https://*;">
   <title>BTCQ · 比特币量子</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -61,9 +61,9 @@
       <div class="sidebar-footer">
         <div class="sidebar-status">
           <span class="status-dot" id="conn-dot"></span>
-          <span id="conn-text">本地链</span>
+          <span id="conn-text">未连接节点</span>
         </div>
-        <div class="sidebar-version">v0.1.4</div>
+        <div class="sidebar-version">v0.1.5</div>
       </div>
     </aside>
 
@@ -517,19 +517,14 @@
         </div>
 
         <div class="card glass">
-          <h3>路径配置</h3>
+          <h3>节点连接</h3>
           <label class="field">
-            <span class="field-label">BTCQ 协议代码路径</span>
-            <div class="field-row">
-              <input type="text" id="setting-btcq-path" placeholder="自动检测...">
-              <button class="btn btn-tertiary" data-action="pick-btcq-path">选择...</button>
-            </div>
-            <small class="muted">需要包含 btcq/proposer.py 的目录（github.com/douyamv/BTCQ）</small>
+            <span class="field-label">BTCQ 节点 URL</span>
+            <input type="text" id="setting-node-url" placeholder="http://node.btcq.network:8333">
+            <small class="muted">连接公开 BTCQ 节点查询区块、广播交易。本地不运行任何代码。</small>
           </label>
-          <label class="field">
-            <span class="field-label">Python 路径</span>
-            <input type="text" id="setting-python" placeholder="python3">
-          </label>
+          <button class="btn btn-primary" data-action="test-node-connection">测试连接</button>
+          <span id="node-conn-status" class="status"></span>
         </div>
 
         <div class="card glass">
