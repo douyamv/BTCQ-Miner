@@ -75,37 +75,64 @@ function showPage(name) {
 }
 
 // =============== 启动 ===============
-async function boot() {
-  App.state = await btcq.getState();
-  if (App.state.walletAddress) {
-    App.activeWallet = { address: App.state.walletAddress, privateKey: App.state.walletPrivateKey };
-  }
-
-  // 全局事件代理
+function boot() {
+  // 关键：先绑事件，确保 UI 永远可点（即便后续异步加载失败）
   document.addEventListener('click', e => {
-    const navItem = e.target.closest('.nav-item');
-    if (navItem) { showPage(navItem.dataset.page); return; }
+    try {
+      const navItem = e.target.closest('.nav-item');
+      if (navItem) { showPage(navItem.dataset.page); return; }
 
-    const tab = e.target.closest('.tab[data-explorer-tab]');
-    if (tab) { Pages.explorer.switchTab(tab.dataset.explorerTab); return; }
+      const tab = e.target.closest('.tab[data-explorer-tab]');
+      if (tab) { Pages.explorer.switchTab(tab.dataset.explorerTab); return; }
 
-    const link = e.target.closest('[data-link]');
-    if (link) { e.preventDefault(); btcq.openExternal(link.dataset.link); return; }
+      const link = e.target.closest('[data-link]');
+      if (link) { e.preventDefault(); btcq.openExternal(link.dataset.link); return; }
 
-    const action = e.target.closest('[data-action]');
-    if (action) { e.preventDefault(); handleAction(action.dataset.action, action); return; }
+      const action = e.target.closest('[data-action]');
+      if (action) { e.preventDefault(); handleAction(action.dataset.action, action); return; }
+    } catch (err) {
+      console.error('[boot] click handler error:', err);
+      toast('操作出错: ' + err.message, 'error');
+    }
   });
 
-  // 挖矿事件
-  btcq.onMiningEvent(handleMiningEvent);
+  // 挖矿事件订阅
+  try {
+    if (btcq?.onMiningEvent) btcq.onMiningEvent(handleMiningEvent);
+  } catch (e) { console.warn(e); }
 
-  // 启动主循环：每 5 秒刷新当前页
-  App.pollHandle = setInterval(() => {
-    if (App.currentPage in Pages) Pages[App.currentPage].refresh();
-  }, 5000);
+  // 异步加载状态（失败不阻塞 UI）
+  loadInitialState().catch(err => {
+    console.error('[boot] initial state load failed:', err);
+    toast('初始化失败: ' + err.message, 'error');
+  });
 
   // 默认进入概览
   showPage('overview');
+
+  // 主循环：每 5 秒刷新当前页（失败不抛）
+  App.pollHandle = setInterval(() => {
+    try {
+      if (App.currentPage in Pages) Pages[App.currentPage].refresh();
+    } catch (e) { console.warn('refresh err', e); }
+  }, 5000);
+}
+
+async function loadInitialState() {
+  if (!window.btcq) {
+    console.error('window.btcq 不存在 — preload 桥未加载');
+    toast('IPC 桥未加载，请重启应用', 'error');
+    return;
+  }
+  App.state = await btcq.getState() || {};
+  if (App.state.walletAddress) {
+    App.activeWallet = {
+      address: App.state.walletAddress,
+      privateKey: App.state.walletPrivateKey
+    };
+  }
+  // 状态加载完后立即刷新当前页
+  if (App.currentPage in Pages) Pages[App.currentPage].refresh();
 }
 
 // =============== Action 处理 ===============
@@ -189,28 +216,40 @@ Pages.overview = {
         : '点击挖矿菜单开始';
       $('#mining-status-badge').textContent = App.mining.running ? '运行' : '未启动';
 
-      // 钱包
+      // 钱包：有则显示卡片，无则显示 CTA 大块
+      const walletCard = $('#overview-wallet-card');
+      const noWalletCta = $('#overview-no-wallet-cta');
+      const blocksCard = $('#overview-blocks-card');
+      const row2 = $('#overview-row-2');
       const wInfo = $('#overview-wallet-info');
+
       if (App.activeWallet) {
-        const bal = await btcq.balanceOf(App.activeWallet.address);
-        wInfo.innerHTML = `
-          <div style="margin-bottom:12px">
-            <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">活跃地址</div>
-            <code class="address" style="font-size:13px">${shortAddr(App.activeWallet.address)}</code>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div><div class="muted" style="font-size:11px">流动</div>
-              <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent-cyan)">${fmtBTCQ(bal.liquid)}</div></div>
-            <div><div class="muted" style="font-size:11px">已抵押</div>
-              <div style="font-family:var(--font-mono);font-size:18px;font-weight:700">${fmtBTCQ(bal.staked)}</div></div>
-          </div>
-        `;
+        walletCard.style.display = '';
+        noWalletCta.style.display = 'none';
+        // 恢复双栏布局
+        row2.style.gridTemplateColumns = '1fr 1fr';
+        try {
+          const bal = await btcq.balanceOf(App.activeWallet.address);
+          wInfo.innerHTML = `
+            <div style="margin-bottom:12px">
+              <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">活跃地址</div>
+              <code class="address" style="font-size:13px">${shortAddr(App.activeWallet.address)}</code>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div><div class="muted" style="font-size:11px">流动</div>
+                <div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent-cyan)">${fmtBTCQ(bal.liquid)}</div></div>
+              <div><div class="muted" style="font-size:11px">已抵押</div>
+                <div style="font-family:var(--font-mono);font-size:18px;font-weight:700">${fmtBTCQ(bal.staked)}</div></div>
+            </div>
+          `;
+        } catch (e) {
+          wInfo.innerHTML = '<div class="empty-state muted">无法读取余额（链未初始化？）</div>';
+        }
       } else {
-        wInfo.innerHTML = `
-          <div class="empty-state">
-            <p>还没有钱包</p>
-            <button class="btn btn-primary" data-action="overview-create-wallet">创建钱包</button>
-          </div>`;
+        // 没钱包：隐藏钱包卡片，让最近区块独占整行，下方显示创建 CTA
+        walletCard.style.display = 'none';
+        noWalletCta.style.display = '';
+        row2.style.gridTemplateColumns = '1fr';
       }
 
       // 最近区块
