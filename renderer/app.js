@@ -24,7 +24,37 @@ const App = {
 const $ = sel => document.querySelector(sel);
 const $$ = sel => [...document.querySelectorAll(sel)];
 
-const fmtBTCQ = (atomic) => (Number(atomic) / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 });
+// BTCQ 协议精度：1 BTCQ = 10^18 atomic units（与 Ethereum 对齐）
+const COIN = 10n ** 18n;
+const COIN_DECIMALS = 18;
+// atomic (string|number|bigint) → 'X.YYYY' 显示串
+function fmtBTCQ(atomic, displayDecimals = 6) {
+  let big;
+  try { big = BigInt(atomic); } catch { return String(atomic); }
+  const neg = big < 0n;
+  if (neg) big = -big;
+  const whole = big / COIN;
+  const frac = big % COIN;
+  const fracStr = frac.toString().padStart(COIN_DECIMALS, '0').slice(0, displayDecimals).replace(/0+$/, '');
+  const wholeStr = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-' : '') + wholeStr + (fracStr ? '.' + fracStr : '');
+}
+// 'X.YYYY' 显示串 → atomic BigInt（防 parseFloat 精度丢失）
+function parseAmount(input) {
+  if (input == null) throw new Error('金额为空');
+  const s = String(input).trim();
+  if (!s) throw new Error('金额为空');
+  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error('金额格式无效（仅允许非负数字）');
+  const [whole, frac = ''] = s.split('.');
+  if (frac.length > COIN_DECIMALS) throw new Error(`小数最多 ${COIN_DECIMALS} 位`);
+  const padded = (frac + '0'.repeat(COIN_DECIMALS)).slice(0, COIN_DECIMALS);
+  const atomic = BigInt(whole || '0') * COIN + BigInt(padded || '0');
+  if (atomic <= 0n) throw new Error('金额必须大于 0');
+  // 上限：100 × 21M BTCQ（与服务端一致），任何合法 tx 不会超过
+  const HARD_MAX = 100n * 21_000_000n * COIN;
+  if (atomic > HARD_MAX) throw new Error('金额超出最大值');
+  return atomic;
+}
 const shortAddr = (a) => a ? a.slice(0, 10) + '...' + a.slice(-6) : '0x...';
 const shortHash = (h) => h ? h.slice(0, 10) + '...' + h.slice(-6) : '—';
 // XSS 防护：拼到 innerHTML 模板里的所有用户/链上数据必须先过 esc()
@@ -403,10 +433,15 @@ async function loadInitialState() {
     console.log('[state] active wallet:', App.activeWallet.address);
   }
 
-  // 默认连本地节点（如未配置）
-  App.nodeUrl = App.state.nodeUrl || 'http://localhost:8333';
-  if (!App.state.nodeUrl) {
+  // 默认接入公网主节点；旧版本可能存了 localhost，自动迁移
+  const PUBLIC_NODE = 'http://43.136.28.125:8333';
+  const isLegacyLocal = App.state.nodeUrl && /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?\b/i.test(App.state.nodeUrl);
+  if (!App.state.nodeUrl || isLegacyLocal) {
+    App.nodeUrl = PUBLIC_NODE;
     await btcq.setState({ nodeUrl: App.nodeUrl });
+    if (isLegacyLocal) console.log('[boot] 检测到老版本 localhost 节点，已迁移到公网', PUBLIC_NODE);
+  } else {
+    App.nodeUrl = App.state.nodeUrl;
   }
   await Node.checkConnection();
 
@@ -475,6 +510,7 @@ async function handleAction(action, btn) {
     case 'net-add-peer':       return $('#modal-add-peer').classList.remove('hidden');
     case 'confirm-add-peer':   return Network.addPeer();
     case 'test-node-connection': return Settings.testNode(btn);
+    case 'reset-node-url':       return Settings.resetNodeUrl();
 
     // 设置
     case 'open-data-dir':      return toast('数据目录：~/Library/Application Support/btcq-miner', '');
@@ -985,19 +1021,30 @@ Pages.wallet = {
 // =============== 转账 / 抵押 ===============
 const Send = {
   async execute() {
-    if (!App.activeWallet?.privateKey) { toast('请先创建钱包', 'error'); return; }
-    if (!App.nodeConnected) { toast('未连接节点', 'error'); return; }
-    const to = $('#send-to').value.trim();
-    const amount = parseFloat($('#send-amount').value);
-    if (!/^0x[0-9a-fA-F]{40}$/.test(to)) { toast('地址格式错误', 'error'); return; }
-    if (!amount || amount <= 0) { toast('金额无效', 'error'); return; }
     try {
-      // 从节点取实时 nonce
+      await Wallet._ensureVault();
+      if (!App.activeWallet?.privateKey) { toast('请先创建钱包', 'error'); return; }
+      if (!App.nodeConnected) { toast('未连接节点', 'error'); return; }
+      const to = $('#send-to').value.trim().toLowerCase();
+      if (!/^0x[0-9a-fA-F]{40}$/.test(to)) { toast('收款地址格式错误（应为 0x + 40 hex）', 'error'); return; }
+      if (to === App.activeWallet.address.toLowerCase()) { toast('不能转给自己', 'error'); return; }
+
+      let amount;
+      try { amount = parseAmount($('#send-amount').value); }
+      catch (e) { toast(e.message, 'error'); return; }
+
+      // 客户端余额预检（最终在节点强制）
       const info = await Node.addressInfo(App.activeWallet.address);
+      const liquid = BigInt(info.liquid);
+      if (amount > liquid) {
+        toast(`余额不足：你有 ${fmtBTCQ(liquid)} BTCQ，要发 ${fmtBTCQ(amount)} BTCQ`, 'error');
+        return;
+      }
+
       const tx = await btcq.signTransaction({
         privateKey: App.activeWallet.privateKey,
         recipient: to,
-        amount: BigInt(Math.floor(amount * 1e8)).toString(),
+        amount: amount.toString(),
         nonce: info.nonce,
         kind: 'transfer',
       });
@@ -1055,25 +1102,53 @@ Pages.send = {
   },
 };
 
+// 最低首次抵押：1 BTCQ = 10^18 atomic
+const MIN_STAKE_ATOMIC = 1n * COIN;
+
 const Stake = {
   async stake() { return this._do('stake', $('#stake-amount').value); },
   async unstake() { return this._do('unstake', $('#unstake-amount').value); },
   async _do(kind, amountStr) {
-    if (!App.activeWallet?.privateKey) { toast('请先创建钱包', 'error'); return; }
-    if (!App.nodeConnected) { toast('未连接节点', 'error'); return; }
-    const amount = parseFloat(amountStr);
-    if (!amount || amount <= 0) { toast('金额无效', 'error'); return; }
     try {
+      await Wallet._ensureVault();
+      if (!App.activeWallet?.privateKey) { toast('请先创建钱包', 'error'); return; }
+      if (!App.nodeConnected) { toast('未连接节点', 'error'); return; }
+
+      let amount;
+      try { amount = parseAmount(amountStr); }
+      catch (e) { toast(e.message, 'error'); return; }
+
       const info = await Node.addressInfo(App.activeWallet.address);
+      const liquid = BigInt(info.liquid);
+      const staked = BigInt(info.staked);
+
+      if (kind === 'stake') {
+        if (amount > liquid) {
+          toast(`流通余额不足：你有 ${fmtBTCQ(liquid)} BTCQ，要抵押 ${fmtBTCQ(amount)} BTCQ`, 'error');
+          return;
+        }
+        // 首次抵押必须 ≥ MIN_STAKE
+        if (staked === 0n && amount < MIN_STAKE_ATOMIC) {
+          toast(`首次抵押至少 ${fmtBTCQ(MIN_STAKE_ATOMIC)} BTCQ`, 'error');
+          return;
+        }
+      } else if (kind === 'unstake') {
+        if (amount > staked) {
+          toast(`抵押不足：你抵押了 ${fmtBTCQ(staked)} BTCQ，要解 ${fmtBTCQ(amount)} BTCQ`, 'error');
+          return;
+        }
+      }
+
       const tx = await btcq.signTransaction({
         privateKey: App.activeWallet.privateKey,
         recipient: '0x' + '00'.repeat(19) + '01',
-        amount: BigInt(Math.floor(amount * 1e8)).toString(),
+        amount: amount.toString(),
         nonce: info.nonce, kind,
       });
       const r = await Node.submitTx(tx);
       if (r.ok) {
-        toast(`${kind} 已广播：${amount} BTCQ`, 'success');
+        const verb = kind === 'stake' ? '抵押' : '解抵押';
+        toast(`${verb} 已广播：${fmtBTCQ(amount)} BTCQ`, 'success');
         $('#stake-amount').value = '';
         $('#unstake-amount').value = '';
         Pages.stake.refresh();
@@ -1387,6 +1462,16 @@ const Settings = {
     App.nodeConnected = false;
     toast('已重置', 'success');
     Pages.settings.refresh();
+  },
+  async resetNodeUrl() {
+    const PUBLIC_NODE = 'http://43.136.28.125:8333';
+    $('#setting-node-url').value = PUBLIC_NODE;
+    App.nodeUrl = PUBLIC_NODE;
+    await btcq.setState({ nodeUrl: PUBLIC_NODE });
+    App.state.nodeUrl = PUBLIC_NODE;
+    await Node.checkConnection();
+    toast('已恢复公网默认', 'success');
+    if (App.currentPage in Pages) Pages[App.currentPage].refresh();
   },
 };
 Pages.settings = {

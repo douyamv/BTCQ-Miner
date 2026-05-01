@@ -527,10 +527,13 @@
           <h3>节点连接</h3>
           <label class="field">
             <span class="field-label">BTCQ 节点 URL</span>
-            <input type="text" id="setting-node-url" placeholder="http://node.btcq.network:8333">
-            <small class="muted">连接公开 BTCQ 节点查询区块、广播交易。本地不运行任何代码。</small>
+            <input type="text" id="setting-node-url" placeholder="http://43.136.28.125:8333">
+            <small class="muted">默认连公网主节点 <code>http://43.136.28.125:8333</code>。客户端不运行任何本地链代码。</small>
           </label>
-          <button class="btn btn-primary" data-action="test-node-connection">测试连接</button>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-primary" data-action="test-node-connection">测试连接</button>
+            <button class="btn btn-secondary" data-action="reset-node-url">恢复公网默认</button>
+          </div>
           <span id="node-conn-status" class="status"></span>
         </div>
 
