@@ -433,13 +433,16 @@ async function loadInitialState() {
     console.log('[state] active wallet:', App.activeWallet.address);
   }
 
-  // 默认接入公网主节点；旧版本可能存了 localhost，自动迁移
+  // 公网主节点（客户端永远不连本机链）
   const PUBLIC_NODE = 'http://43.136.28.125:8333';
-  const isLegacyLocal = App.state.nodeUrl && /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?\b/i.test(App.state.nodeUrl);
-  if (!App.state.nodeUrl || isLegacyLocal) {
+  // 仅接受公网 http/https URL；任何非公网形式（包括老版本残留的内网/回环）都重置为主节点
+  const looksPublic = (u) =>
+    typeof u === 'string'
+    && /^https?:\/\/[\w.-]+(:\d+)?(\/.*)?$/i.test(u)
+    && !/^https?:\/\/(localhost\b|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0\b|\[?::1\]?\b)/i.test(u);
+  if (!looksPublic(App.state.nodeUrl)) {
     App.nodeUrl = PUBLIC_NODE;
     await btcq.setState({ nodeUrl: App.nodeUrl });
-    if (isLegacyLocal) console.log('[boot] 检测到老版本 localhost 节点，已迁移到公网', PUBLIC_NODE);
   } else {
     App.nodeUrl = App.state.nodeUrl;
   }
