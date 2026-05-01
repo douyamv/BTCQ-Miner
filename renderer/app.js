@@ -151,22 +151,33 @@ async function loadInitialState() {
 
   // 多钱包：state.wallets 是数组，state.activeWalletIndex 当前选中
   if (!Array.isArray(App.state.wallets)) {
-    // 老版本兼容：单钱包升级到数组
     if (App.state.walletAddress && App.state.walletPrivateKey) {
       App.state.wallets = [{
-        name: '0',
+        name: '1',
         address: App.state.walletAddress,
         privateKey: App.state.walletPrivateKey,
       }];
       App.state.activeWalletIndex = 0;
-      await btcq.setState({
-        wallets: App.state.wallets,
-        activeWalletIndex: 0,
-      });
+      App.state.walletCounter = 1;
     } else {
       App.state.wallets = [];
       App.state.activeWalletIndex = -1;
+      App.state.walletCounter = 0;
     }
+    await btcq.setState({
+      wallets: App.state.wallets,
+      activeWalletIndex: App.state.activeWalletIndex,
+      walletCounter: App.state.walletCounter,
+    });
+  }
+  // 计数器从已有钱包名推断（兼容老 state）
+  if (App.state.walletCounter == null) {
+    const maxNum = (App.state.wallets || []).reduce((m, w) => {
+      const n = parseInt(w.name);
+      return isNaN(n) ? m : Math.max(m, n);
+    }, 0);
+    App.state.walletCounter = maxNum;
+    await btcq.setState({ walletCounter: maxNum });
   }
   if (App.state.wallets.length > 0) {
     const idx = App.state.activeWalletIndex >= 0 ? App.state.activeWalletIndex : 0;
@@ -220,9 +231,11 @@ async function handleAction(action, btn) {
     case 'do-unstake':         return Stake.unstake();
 
     // 挖矿一键启动（v0.1.6）
+    case 'mining-open-wizard':       return Mining.openWizard();
     case 'mining-open-ibm-register': return btcq.openExternal('https://quantum.ibm.com');
     case 'mining-open-ibm-token':    return btcq.openExternal('https://quantum.ibm.com/account');
     case 'mining-step-next':         return Mining.next();
+    case 'mining-prepare':           return Mining.prepare();
     case 'mining-launch':            return Mining.launch();
     case 'mining-stop':              return Mining.stop();
     case 'mining-open-docs':         return btcq.openExternal('https://github.com/douyamv/BTCQ/blob/main/docs/DEPLOY.md');
@@ -458,18 +471,21 @@ const Wallet = {
     try {
       const w = btcq.generateWallet();
       const wallets = App.state.wallets || [];
-      // 默认名 = 当前列表长度（数字 0,1,2,...）
+      // 单调计数器：从 1 开始，永不重用，删除后下一个继续 +1
+      const counter = (App.state.walletCounter || 0) + 1;
       const newWallet = {
-        name: String(wallets.length),
+        name: String(counter),
         address: w.address,
         privateKey: w.privateKey,
       };
       wallets.push(newWallet);
       App.state.wallets = wallets;
+      App.state.walletCounter = counter;
       App.state.activeWalletIndex = wallets.length - 1;
       App.activeWallet = newWallet;
       await btcq.setState({
         wallets,
+        walletCounter: counter,
         activeWalletIndex: App.state.activeWalletIndex,
       });
       toast(`钱包 #${newWallet.name} 已创建：${shortAddr(w.address)}`, 'success');
@@ -482,22 +498,24 @@ const Wallet = {
     try {
       const w = btcq.walletFromPrivate(k);
       const wallets = App.state.wallets || [];
-      // 检查重复
       if (wallets.find(x => x.address === w.address)) {
         toast('该地址已存在', 'error');
         return;
       }
+      const counter = (App.state.walletCounter || 0) + 1;
       const newWallet = {
-        name: String(wallets.length),
+        name: String(counter),
         address: w.address,
         privateKey: w.privateKey,
       };
       wallets.push(newWallet);
       App.state.wallets = wallets;
+      App.state.walletCounter = counter;
       App.state.activeWalletIndex = wallets.length - 1;
       App.activeWallet = newWallet;
       await btcq.setState({
         wallets,
+        walletCounter: counter,
         activeWalletIndex: App.state.activeWalletIndex,
       });
       $('#modal-import-key').classList.add('hidden');
@@ -770,6 +788,12 @@ const Mining = {
     }
   },
   next() { Mining.goStep(Math.min(Mining.currentStep + 1, 3)); },
+  openWizard() {
+    $('#mining-cta').classList.add('hidden');
+    $('#mining-wizard').classList.remove('hidden');
+    Mining.goStep(1);
+    Mining.checkPre();
+  },
   async checkPre() {
     if (!btcq.miningCheckSetup) return;
     try {
@@ -783,58 +807,73 @@ const Mining = {
       };
       set('pre-python', !!setup.python, setup.python?.version || '未检测到');
       set('pre-git',    !!setup.git,    setup.git ? '✓ 已安装' : '未安装');
-      set('pre-btcq',   !!setup.btcqInstalled, setup.btcqInstalled ? '✓ 已下载' : '将自动下载');
-      set('pre-wallet', !!setup.walletExported, setup.walletExported ? '✓ 已导出' : '将自动导出');
+      set('pre-btcq',   !!setup.btcqInstalled, setup.btcqInstalled ? '✓ 已下载' : '点击"自动安装"');
+      set('pre-wallet', !!App.activeWallet, App.activeWallet ? '✓ ' + shortAddr(App.activeWallet.address) : '请先创建钱包');
+      // 已就绪：自动隐藏"自动安装"按钮，强调"下一步"
+      const ready = !!setup.python && !!setup.git && !!setup.btcqInstalled && !!App.activeWallet;
+      $('#mining-prepare-btn').style.display = setup.btcqInstalled ? 'none' : '';
+      $('#mining-step1-next').style.display = ready ? '' : 'none';
       // 已挖矿则切到 dashboard
       if (setup.miningRunning) {
+        $('#mining-cta').classList.add('hidden');
         $('#mining-wizard').classList.add('hidden');
         $('#mining-dashboard').classList.remove('hidden');
         Mining._updateStats(setup);
-      } else {
-        $('#mining-wizard').classList.remove('hidden');
-        $('#mining-dashboard').classList.add('hidden');
       }
     } catch (e) { console.warn('checkPre fail', e); }
+  },
+  async prepare() {
+    if (!App.activeWallet) {
+      toast('请先在「我的钱包」页创建钱包', 'error');
+      return;
+    }
+    const btn = $('#mining-prepare-btn');
+    btn.disabled = true;
+    Mining.log('▶ 自动下载 BTCQ 协议代码...', 'event');
+    try {
+      const inst = await btcq.miningInstall();
+      if (!inst.ok) {
+        Mining.log('❌ ' + inst.error, 'error');
+        btn.disabled = false;
+        return;
+      }
+      Mining.log('✅ BTCQ 协议代码就绪', 'success');
+      Mining.checkPre();
+    } catch (e) {
+      Mining.log('❌ ' + e.message, 'error');
+    }
+    btn.disabled = false;
   },
   async launch() {
     const token = $('#mining-token-input').value.trim();
     if (!token) { toast('请粘贴 API Token', 'error'); return; }
-    if (!App.activeWallet?.privateKey) { toast('请先创建钱包（菜单 → 我的钱包）', 'error'); return; }
+    if (!App.activeWallet?.privateKey) { toast('请先创建钱包', 'error'); return; }
 
     const btn = $('#mining-launch-btn');
     btn.disabled = true;
-    Mining.log('开始一键启动量子挖矿...', 'event');
+    Mining.log('▶ 验证 IBM Quantum Token...', 'event');
 
     try {
-      // 1. 安装 BTCQ
-      Mining.log('▶ 检测/下载 BTCQ 协议代码...', 'event');
-      const inst = await btcq.miningInstall();
-      if (!inst.ok) { Mining.log('❌ ' + inst.error, 'error'); btn.disabled = false; return; }
-
-      // 2. 保存 Token
-      Mining.log('▶ 保存 IBM Quantum Token 并测试连接...', 'event');
+      // 1. 验证 Token
       const tk = await btcq.miningSaveToken(token);
       if (!tk.ok) { Mining.log('❌ Token 错误：' + tk.error, 'error'); btn.disabled = false; return; }
       Mining.log(`✓ 检测到 ${tk.backends.length} 台量子机：${tk.backends.join(', ')}`, 'success');
 
-      // 3. 导出钱包到挖矿目录
-      Mining.log('▶ 导出钱包到挖矿目录（私钥仅写本地）...', 'event');
+      // 2. 导出钱包
+      Mining.log('▶ 同步钱包到挖矿守护...', 'event');
       const wal = await btcq.miningExportWallet(App.activeWallet.privateKey);
-      if (!wal.ok) { Mining.log('❌ 钱包导出失败：' + wal.error, 'error'); btn.disabled = false; return; }
-      Mining.log(`✓ 挖矿地址 ${wal.address}`, 'success');
+      if (!wal.ok) { Mining.log('❌ ' + wal.error, 'error'); btn.disabled = false; return; }
+      Mining.log(`✓ 挖矿地址：${wal.address}`, 'success');
 
-      // 4. 启动守护进程
-      Mining.log('▶ 启动挖矿守护进程（20 分钟一块，每块约 1 秒量子时间）...', 'event');
+      // 3. 启动
+      Mining.log('▶ 启动量子挖矿守护进程...', 'event');
       const start = await btcq.miningStart({
         interval: 1200,
         backend: tk.backends[0] || 'ibm_marrakesh',
         shots: 4096,
       });
-      if (!start.ok) { Mining.log('❌ 启动失败：' + start.error, 'error'); btn.disabled = false; return; }
-      Mining.log('✅ 挖矿已启动！量子机器开始执行你的电路', 'success');
-      $('#mining-launch-btn').style.display = 'none';
-      $('#mining-stop-btn').style.display = '';
-      // 切换到仪表盘
+      if (!start.ok) { Mining.log('❌ ' + start.error, 'error'); btn.disabled = false; return; }
+      Mining.log('🎉 量子挖矿已启动！', 'success');
       setTimeout(() => Mining.checkPre(), 1500);
     } catch (e) {
       Mining.log('❌ 异常：' + e.message, 'error');
@@ -876,8 +915,22 @@ const Mining = {
 };
 Pages.mining = {
   async refresh() {
-    Mining.goStep(Mining.currentStep);
-    await Mining.checkPre();
+    // 默认显示 CTA "开始挖矿"
+    if (!$('#mining-wizard').classList.contains('hidden') === false &&
+        !$('#mining-cta').classList.contains('hidden') === false) {
+      $('#mining-cta').classList.remove('hidden');
+      $('#mining-wizard').classList.add('hidden');
+    }
+    // 如果已经在挖矿了，自动展示状态
+    try {
+      const setup = await btcq.miningCheckSetup();
+      if (setup.miningRunning) {
+        $('#mining-cta').classList.add('hidden');
+        $('#mining-wizard').classList.add('hidden');
+        $('#mining-dashboard').classList.remove('hidden');
+        Mining._updateStats(setup);
+      }
+    } catch {}
   },
 };
 

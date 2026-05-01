@@ -56,7 +56,8 @@ async function signTransaction({ privateKey, recipient, amount, nonce, kind = 't
   const sig = key.sign(txHash, { canonical: true });   // canonical = lowS
   const r = sig.r.toArrayLike(Uint8Array, 'be', 32);
   const s = sig.s.toArrayLike(Uint8Array, 'be', 32);
-  const v = (sig.recoveryParam || 0) + 27;
+  // BTCQ Python (eth_keys) 期望 v ∈ {0, 1}，不是 {27, 28}
+  const v = sig.recoveryParam || 0;
   const fullSig = concat(r, s, new Uint8Array([v]));
   return {
     sender: '0x' + bytesToHex(sender),

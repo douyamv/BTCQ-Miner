@@ -295,45 +295,45 @@
       <section class="page hidden" data-page="mining">
         <header class="page-header">
           <h1>量子挖矿</h1>
-          <p class="page-sub">挖矿 100% 在 IBM Quantum 真量子机上完成（不在你本机）</p>
+          <p class="page-sub">挖矿 100% 在 IBM Quantum 真量子机上完成 · 你的本机只跑界面</p>
         </header>
 
-        <!-- 进度条 / 引导步骤 -->
-        <div class="card glass" id="mining-wizard">
+        <!-- 第 0 屏：大按钮"开始挖矿" -->
+        <div class="card glass" id="mining-cta">
+          <div class="empty-hero" style="padding: 48px 24px">
+            <div class="empty-icon">⚛</div>
+            <h2 style="font-size:28px;margin-bottom:8px">一键开启量子挖矿</h2>
+            <p class="muted" style="font-size:15px;margin-bottom:8px">
+              你即将获得：每 20 分钟一个区块，每块 50 BTCQ 奖励
+            </p>
+            <p class="muted" style="font-size:13px;margin-bottom:24px">
+              全部计算在 IBM Quantum 量子机上完成，本机零负担
+            </p>
+            <button class="btn btn-primary btn-lg" data-action="mining-open-wizard"
+                    style="font-size:16px;padding:16px 40px">
+              开始挖矿
+            </button>
+            <p class="muted" style="margin-top:16px;font-size:12px">
+              只需 3 个简单步骤，几分钟内开始挖矿
+            </p>
+          </div>
+        </div>
+
+        <!-- 引导向导 -->
+        <div class="card glass hidden" id="mining-wizard">
           <div class="mining-stepper">
-            <div class="mstep" data-mstep="1"><span class="mstep-no">1</span> 注册 IBM</div>
+            <div class="mstep" data-mstep="1"><span class="mstep-no">1</span> 准备本机</div>
             <div class="mstep-line"></div>
-            <div class="mstep" data-mstep="2"><span class="mstep-no">2</span> 获取 API Key</div>
+            <div class="mstep" data-mstep="2"><span class="mstep-no">2</span> 注册 IBM</div>
             <div class="mstep-line"></div>
-            <div class="mstep" data-mstep="3"><span class="mstep-no">3</span> 一键启动</div>
+            <div class="mstep" data-mstep="3"><span class="mstep-no">3</span> 填入 API Key</div>
           </div>
 
+          <!-- 第 1 步：本机环境检测 + 自动安装 -->
           <div id="mining-step-1" class="mining-step active">
-            <h2>第 1 步：注册 IBM Quantum 免费账号</h2>
-            <p class="muted">5 分钟邮箱注册，免费送 600 秒/月量子机配额</p>
-            <div class="step-actions">
-              <button class="btn btn-primary btn-lg" data-action="mining-open-ibm-register">打开注册页面 ↗</button>
-              <button class="btn btn-ghost" data-action="mining-step-next">已注册，下一步 →</button>
-            </div>
-          </div>
-
-          <div id="mining-step-2" class="mining-step hidden">
-            <h2>第 2 步：创建你的 API Token</h2>
-            <p class="muted">登录后访问"账户"页 → API Token → "Create token"，复制 64 位字符串</p>
-            <div class="step-actions">
-              <button class="btn btn-primary btn-lg" data-action="mining-open-ibm-token">打开 Token 页面 ↗</button>
-              <button class="btn btn-ghost" data-action="mining-step-next">已复制，下一步 →</button>
-            </div>
-          </div>
-
-          <div id="mining-step-3" class="mining-step hidden">
-            <h2>第 3 步：粘贴 Token 并启动</h2>
-            <label class="field">
-              <span class="field-label">IBM Quantum API Token</span>
-              <textarea id="mining-token-input" rows="3" placeholder="ApiKey-xxxx... 或长串字符"></textarea>
-            </label>
-
-            <div id="mining-precheck" class="precheck-grid">
+            <h2>第 1 步：准备本机环境</h2>
+            <p class="muted">系统检测中，缺啥自动装啥...</p>
+            <div class="precheck-grid">
               <div class="precheck-item" id="pre-python">
                 <span class="precheck-label">Python 3.10+</span>
                 <span class="precheck-status">检测中…</span>
@@ -347,25 +347,60 @@
                 <span class="precheck-status">检测中…</span>
               </div>
               <div class="precheck-item" id="pre-wallet">
-                <span class="precheck-label">挖矿钱包</span>
+                <span class="precheck-label">GUI 钱包</span>
                 <span class="precheck-status">检测中…</span>
               </div>
             </div>
-
             <div class="step-actions">
-              <button class="btn btn-primary btn-lg" data-action="mining-launch" id="mining-launch-btn">
-                ⚛ 一键启动量子挖矿
+              <button class="btn btn-primary btn-lg" data-action="mining-prepare" id="mining-prepare-btn">
+                自动安装 BTCQ 协议
               </button>
-              <button class="btn btn-ghost" data-action="mining-stop" id="mining-stop-btn" style="display:none">
-                停止挖矿
+              <button class="btn btn-ghost" data-action="mining-step-next" id="mining-step1-next">
+                已就绪，下一步 →
               </button>
             </div>
-
             <div class="card glass" style="margin-top:16px">
-              <h3>启动日志</h3>
+              <h3>安装日志</h3>
               <div id="mining-launch-log" class="log-body" style="max-height:200px">
-                <div class="log-empty muted">点击启动后这里会显示进度...</div>
+                <div class="log-empty muted">检测完成后这里会显示进度...</div>
               </div>
+            </div>
+          </div>
+
+          <!-- 第 2 步：注册 IBM -->
+          <div id="mining-step-2" class="mining-step hidden">
+            <h2>第 2 步：注册 IBM Quantum 免费账号</h2>
+            <p class="muted">5 分钟邮箱注册，免费送 600 秒/月量子机配额，足够挖一两百个区块</p>
+            <div class="step-actions">
+              <button class="btn btn-primary btn-lg" data-action="mining-open-ibm-register">
+                打开 IBM 注册页面 ↗
+              </button>
+              <button class="btn btn-ghost" data-action="mining-step-next">已注册，下一步 →</button>
+            </div>
+            <p class="muted" style="margin-top:24px;font-size:12px">
+              IBM 是全球最大的量子云提供商之一，注册免费、永久免费配额、不需要信用卡
+            </p>
+          </div>
+
+          <!-- 第 3 步：API Key + 启动 -->
+          <div id="mining-step-3" class="mining-step hidden">
+            <h2>第 3 步：填入 API Key，开始挖矿</h2>
+            <p class="muted">最后一步！登录后访问"账户"页 → API Token → "Create token"，复制粘贴到这里</p>
+            <div class="step-actions" style="margin-bottom:16px">
+              <button class="btn btn-secondary" data-action="mining-open-ibm-token">
+                打开 Token 创建页 ↗
+              </button>
+            </div>
+            <label class="field">
+              <span class="field-label">IBM Quantum API Token</span>
+              <textarea id="mining-token-input" rows="3" placeholder="ApiKey-xxxx... 或长串字符（仅本机存储）"></textarea>
+            </label>
+
+            <div class="step-actions">
+              <button class="btn btn-primary btn-lg" data-action="mining-launch" id="mining-launch-btn"
+                      style="font-size:15px;padding:14px 32px">
+                ⚛ 启动量子挖矿
+              </button>
             </div>
           </div>
         </div>
@@ -462,13 +497,6 @@
             <span class="field-label">挖矿奖励地址</span>
             <input type="text" id="setting-reward-addr" placeholder="0x... (默认为活跃钱包)">
             <small class="muted">指定奖励发送地址；留空则使用当前活跃钱包</small>
-          </label>
-          <label class="field">
-            <span class="field-label">挖矿模式</span>
-            <select id="setting-mining-mode">
-              <option value="quantum" selected>真量子机（推荐）</option>
-              <option value="classical">经典模拟（dev）</option>
-            </select>
           </label>
         </div>
 

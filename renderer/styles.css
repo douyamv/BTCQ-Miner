@@ -59,8 +59,15 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   overflow: hidden;
-  user-select: none;
   -webkit-font-smoothing: antialiased;
+  /* 全局可选：地址、哈希、私钥都能复制 */
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* 仅 UI 控件（按钮/菜单）禁选 */
+.btn, .nav-item, .tab, .btn-icon, .nav-icon, .mstep, .titlebar, .sidebar-footer, .step-actions {
+  user-select: none;
+  -webkit-user-select: none;
 }
 body::before {
   content: '';
