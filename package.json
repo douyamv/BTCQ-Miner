@@ -23,7 +23,7 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
-    "@noble/secp256k1": "^2.1.0",
+    "elliptic": "^6.5.4",
     "js-sha3": "^0.9.3"
   },
   "build": {
@@ -38,15 +38,24 @@
     "mac": {
       "category": "public.app-category.finance",
       "icon": "icons/icon.icns",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
       "icon": "icons/icon.ico",
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "linux": {
       "icon": "icons/icon.png",
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Office"
     }
   }

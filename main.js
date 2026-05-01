@@ -37,10 +37,17 @@ function createWindow() {
   mainWindow.loadFile('renderer/index.html');
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  // 临时：默认打开 devtools 方便调试
-  if (isDev || process.argv.includes('--debug')) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
+  // v0.1.5：默认打开 DevTools 方便用户排查（v0.2 会去掉）
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
+
+  // 把 renderer 的 console 转发到主进程的 stdout，便于从终端看错
+  mainWindow.webContents.on('console-message', (e, level, message, line, sourceId) => {
+    const lvl = ['VERBOSE','INFO','WARN','ERROR'][level] || 'LOG';
+    console.log(`[renderer:${lvl}] ${message}`);
+  });
+  mainWindow.webContents.on('preload-error', (e, preloadPath, error) => {
+    console.error(`[preload-error] ${preloadPath}:`, error);
+  });
 }
 
 app.whenReady().then(() => {

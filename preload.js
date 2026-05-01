@@ -1,7 +1,11 @@
 // BTCQ Miner — Preload bridge (v0.1.5 纯前端 + 内置 JS 钱包)
+console.log('[preload] === LOADING START ===');
 const { contextBridge, ipcRenderer } = require('electron');
-const secp = require('@noble/secp256k1');
+const crypto = require('crypto');
+const EC = require('elliptic').ec;
 const { keccak256 } = require('js-sha3');
+const ec = new EC('secp256k1');
+console.log('[preload] all modules required OK');
 
 // ================== 工具：bytes <-> hex ==================
 const bytesToHex = (b) => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
@@ -15,13 +19,18 @@ const keccak256Bytes = (data) => new Uint8Array(keccak256.arrayBuffer(data));
 
 // ================== Wallet（纯 JS，无后端） ==================
 function generateWallet() {
-  const priv = secp.utils.randomPrivateKey();
+  const priv = crypto.randomBytes(32);
   return walletFromPrivate(priv);
 }
 function walletFromPrivate(priv) {
-  const privBytes = priv instanceof Uint8Array ? priv : hexToBytes(priv);
+  const privBytes = priv instanceof Uint8Array || Buffer.isBuffer(priv)
+    ? Uint8Array.from(priv)
+    : hexToBytes(priv);
   if (privBytes.length !== 32) throw new Error('私钥必须是 32 字节');
-  const pub = secp.getPublicKey(privBytes, false).slice(1);    // 去掉 0x04 前缀
+  const key = ec.keyFromPrivate(privBytes);
+  // 未压缩公钥：04 || X(32) || Y(32) → 切掉前缀，剩 64 字节
+  const pubHex = key.getPublic(false, 'hex');     // '04' + x + y
+  const pub = hexToBytes(pubHex.slice(2));
   const addr = keccak256Bytes(pub).slice(-20);
   return {
     privateKey: '0x' + bytesToHex(privBytes),
@@ -31,7 +40,6 @@ function walletFromPrivate(priv) {
 }
 
 // ================== Tx 签名（仿照 BTCQ Python 端） ==================
-// unsigned_bytes = sender(20) || recipient(20) || amount(16, BE) || nonce(8, BE) || kind_len(1) || kind(utf8)
 async function signTransaction({ privateKey, recipient, amount, nonce, kind = 'transfer' }) {
   const w = walletFromPrivate(privateKey);
   const sender = hexToBytes(w.address);
@@ -42,12 +50,14 @@ async function signTransaction({ privateKey, recipient, amount, nonce, kind = 't
   const kindLen = new Uint8Array([kindBytes.length]);
   const unsigned = concat(sender, recipientBytes, amtBytes, nonceBytes, kindLen, kindBytes);
   const txHash = keccak256Bytes(unsigned);
-  // recoverable signature (r || s || v)
-  const sig = await secp.signAsync(txHash, hexToBytes(privateKey), { lowS: true });
-  const sigBytes = sig.toCompactRawBytes();
-  // recovery byte：@noble v2 的 sig 含 recovery
-  const v = sig.recovery + 27;
-  const fullSig = concat(sigBytes, new Uint8Array([v]));
+
+  const privBytes = hexToBytes(privateKey);
+  const key = ec.keyFromPrivate(privBytes);
+  const sig = key.sign(txHash, { canonical: true });   // canonical = lowS
+  const r = sig.r.toArrayLike(Uint8Array, 'be', 32);
+  const s = sig.s.toArrayLike(Uint8Array, 'be', 32);
+  const v = (sig.recoveryParam || 0) + 27;
+  const fullSig = concat(r, s, new Uint8Array([v]));
   return {
     sender: '0x' + bytesToHex(sender),
     recipient: '0x' + bytesToHex(recipientBytes),
@@ -75,19 +85,24 @@ function concat(...arrs) {
 }
 
 // ================== 暴露给渲染层 ==================
-contextBridge.exposeInMainWorld('btcq', {
-  // 状态
-  getState: () => ipcRenderer.invoke('state:get'),
-  setState: (patch) => ipcRenderer.invoke('state:set', patch),
+try {
+  contextBridge.exposeInMainWorld('btcq', {
+    // 状态
+    getState: () => ipcRenderer.invoke('state:get'),
+    setState: (patch) => ipcRenderer.invoke('state:set', patch),
 
-  // shell
-  openExternal: (url) => ipcRenderer.invoke('shell:open', url),
-  selectFolder: () => ipcRenderer.invoke('dialog:select-folder'),
+    // shell
+    openExternal: (url) => ipcRenderer.invoke('shell:open', url),
+    selectFolder: () => ipcRenderer.invoke('dialog:select-folder'),
 
-  // 钱包（纯 JS，零延迟）
-  generateWallet,
-  walletFromPrivate,
-  signTransaction,
+    // 钱包（纯 JS，零延迟）
+    generateWallet,
+    walletFromPrivate,
+    signTransaction,
 
-  platform: process.platform,
-});
+    platform: process.platform,
+  });
+  console.log('[preload] === btcq exposed via contextBridge ===');
+} catch (e) {
+  console.error('[preload] contextBridge.exposeInMainWorld 失败:', e);
+}
