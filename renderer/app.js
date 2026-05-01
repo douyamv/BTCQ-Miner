@@ -212,7 +212,6 @@ const Vault = {
           return;
         }
         Vault.password = pw;
-        // 解密所有 wallet.encryptedKey 到内存
         for (const w of App.state.wallets || []) {
           if (w.encryptedKey) {
             try { w.privateKey = btcq.decryptSecret(w.encryptedKey, pw); }
@@ -220,26 +219,24 @@ const Vault = {
           }
         }
       } else {
-        // setup / migrate：生成 verifier，加密所有现有 wallets
+        // setup / migrate：生成 verifier，加密所有 wallets
         const verifier = btcq.makeVerifier(pw);
         for (const w of App.state.wallets || []) {
-          const priv = w.privateKey;
-          if (priv) {
-            w.encryptedKey = btcq.encryptSecret(priv, pw);
+          if (w.privateKey) {
+            w.encryptedKey = btcq.encryptSecret(w.privateKey, pw);
           }
         }
         Vault.password = pw;
         App.state.passwordVerifier = verifier;
-        // 持久化（不写明文 privateKey）
-        await btcq.setState({
-          passwordVerifier: verifier,
-          wallets: Vault._sanitize(App.state.wallets),
-        });
+        // 持久化（剥掉明文 privateKey）
+        const sanitized = (App.state.wallets || []).map(w => ({
+          name: w.name, address: w.address, encryptedKey: w.encryptedKey,
+        }));
+        await btcq.setState({ passwordVerifier: verifier, wallets: sanitized });
       }
       Vault.locked = false;
       Vault.hide();
       Vault.startIdleTimer();
-      // 重新设置 activeWallet（可能 priv 刚刚被注入）
       const wallets = App.state.wallets || [];
       if (wallets.length > 0) {
         const idx = App.state.activeWalletIndex >= 0 ? App.state.activeWalletIndex : 0;
@@ -250,6 +247,60 @@ const Vault = {
     } catch (e) {
       console.error('vault submit', e);
       err.textContent = '出错：' + e.message;
+    }
+  },
+
+  // "我的钱包" 页面顶部 banner：根据 vault 状态显示不同提示
+  refreshBanner() {
+    const banner = $('#vault-banner');
+    if (!banner) return;
+    const icon = $('#vault-banner-icon');
+    const title = $('#vault-banner-title');
+    const sub = $('#vault-banner-sub');
+    const btn = $('#vault-banner-btn');
+    const wallets = App.state.wallets || [];
+    banner.classList.remove('warn', 'ok');
+    if (!App.state.passwordVerifier) {
+      // 没设过密码
+      if (wallets.length === 0) {
+        banner.classList.add('hidden');
+        return;
+      }
+      banner.classList.remove('hidden');
+      banner.classList.add('warn');
+      icon.textContent = '⚠️';
+      title.textContent = '钱包私钥未加密存盘';
+      sub.textContent = '建议设置主密码以 AES-256-GCM 加密本机私钥（不上传任何地方）';
+      btn.textContent = '设置主密码';
+      btn.dataset.vaultMode = 'setup-or-migrate';
+    } else if (Vault.locked) {
+      banner.classList.remove('hidden');
+      icon.textContent = '🔒';
+      title.textContent = '钱包已锁定';
+      sub.textContent = '解锁后才能创建/导入钱包、转账、抵押、挖矿';
+      btn.textContent = '解锁钱包';
+      btn.dataset.vaultMode = 'unlock';
+    } else {
+      banner.classList.remove('hidden');
+      banner.classList.add('ok');
+      icon.textContent = '🔓';
+      title.textContent = '钱包已解锁';
+      sub.textContent = '10 分钟无操作将自动锁定';
+      btn.textContent = '立即锁定';
+      btn.dataset.vaultMode = 'lock';
+    }
+  },
+
+  bannerAction() {
+    const mode = $('#vault-banner-btn').dataset.vaultMode;
+    if (mode === 'lock') {
+      Vault.lock();
+      Vault.refreshBanner();
+    } else if (mode === 'unlock') {
+      Vault.show('unlock');
+    } else if (mode === 'setup-or-migrate') {
+      const hasPlaintext = (App.state.wallets || []).some(w => w.privateKey);
+      Vault.show(hasPlaintext ? 'migrate' : 'setup');
     }
   },
 
@@ -353,18 +404,10 @@ async function loadInitialState() {
   }
   await Node.checkConnection();
 
-  // ==== Vault 锁屏决策 ====
-  const hasVerifier = !!App.state.passwordVerifier;
-  const plaintextWallets = (App.state.wallets || []).filter(w => w.privateKey);
-  if (hasVerifier) {
-    Vault.show('unlock');
-    return;                           // 等用户解锁后才刷页
-  } else if (plaintextWallets.length > 0) {
-    Vault.show('migrate');
-    return;
-  }
-  // 全新用户、无钱包：不强制设置密码，留到首次创建钱包时
-  Vault.locked = false;
+  // ==== Vault 状态：不强制弹窗，让用户能正常浏览 ====
+  // 没设过密码 → 不锁（plaintext 模式，"我的钱包"页有 banner 引导）
+  // 设过密码 → 默认锁定，需要私钥的操作触发解锁
+  Vault.locked = !!App.state.passwordVerifier;
   if (App.currentPage in Pages) Pages[App.currentPage].refresh();
 }
 
@@ -384,8 +427,9 @@ Node.checkConnection = async function () {
 // =============== Action 处理 ===============
 async function handleAction(action, btn) {
   switch (action) {
-    case 'vault-submit':       return Vault.submit();
-    case 'vault-lock':         return Vault.lock();
+    case 'vault-submit':         return Vault.submit();
+    case 'vault-lock':           return Vault.lock();
+    case 'vault-banner-action':  return Vault.bannerAction();
     case 'open-ibm':           return btcq.openExternal('https://quantum.ibm.com');
     case 'open-token':         return btcq.openExternal('https://quantum.ibm.com/account');
     case 'modal-close':        return $$('.modal-backdrop').forEach(m => m.classList.add('hidden'));
@@ -642,16 +686,32 @@ Pages.explorer = {
 
 // =============== 钱包（多账户，纯 JS） ===============
 const Wallet = {
-  // 创建/导入前确保 vault 已建立
+  // 没设密码 → 直接通过（plaintext 模式）
+  // 设过密码且锁定 → 弹解锁
+  // 设过密码且解锁 → 通过
   async _ensureVault() {
-    if (!App.state.passwordVerifier) {
-      Vault.show('setup');
-      throw new Error('请先设置主密码');
-    }
-    if (Vault.locked) {
+    if (App.state.passwordVerifier && Vault.locked) {
       Vault.show('unlock');
       throw new Error('请先解锁钱包');
     }
+  },
+  // 构造一个新钱包对象，根据 vault 状态选择加密 or 明文存盘
+  _buildEntry(w, counter) {
+    const entry = { name: String(counter), address: w.address, privateKey: w.privateKey };
+    if (App.state.passwordVerifier && !Vault.locked) {
+      entry.encryptedKey = Vault.encryptNew(w.privateKey);
+    } else if (!App.state.passwordVerifier) {
+      // 未设密码：兼容老逻辑，明文存盘（banner 引导用户去加密）
+      entry._plaintext = true;
+    }
+    return entry;
+  },
+  // 持久化：vault 解锁时只存密文，否则保留明文
+  _serialize(wallets) {
+    return wallets.map(w => {
+      if (w.encryptedKey) return { name: w.name, address: w.address, encryptedKey: w.encryptedKey };
+      return { name: w.name, address: w.address, privateKey: w.privateKey };
+    });
   },
   async create() {
     try {
@@ -659,19 +719,14 @@ const Wallet = {
       const w = btcq.generateWallet();
       const wallets = App.state.wallets || [];
       const counter = (App.state.walletCounter || 0) + 1;
-      const newWallet = {
-        name: String(counter),
-        address: w.address,
-        privateKey: w.privateKey,                       // 内存
-        encryptedKey: Vault.encryptNew(w.privateKey),   // 持久化
-      };
+      const newWallet = Wallet._buildEntry(w, counter);
       wallets.push(newWallet);
       App.state.wallets = wallets;
       App.state.walletCounter = counter;
       App.state.activeWalletIndex = wallets.length - 1;
       App.activeWallet = newWallet;
       await btcq.setState({
-        wallets: Vault._sanitize(wallets),
+        wallets: Wallet._serialize(wallets),
         walletCounter: counter,
         activeWalletIndex: App.state.activeWalletIndex,
       });
@@ -691,19 +746,14 @@ const Wallet = {
         return;
       }
       const counter = (App.state.walletCounter || 0) + 1;
-      const newWallet = {
-        name: String(counter),
-        address: w.address,
-        privateKey: w.privateKey,
-        encryptedKey: Vault.encryptNew(w.privateKey),
-      };
+      const newWallet = Wallet._buildEntry(w, counter);
       wallets.push(newWallet);
       App.state.wallets = wallets;
       App.state.walletCounter = counter;
       App.state.activeWalletIndex = wallets.length - 1;
       App.activeWallet = newWallet;
       await btcq.setState({
-        wallets: Vault._sanitize(wallets),
+        wallets: Wallet._serialize(wallets),
         walletCounter: counter,
         activeWalletIndex: App.state.activeWalletIndex,
       });
@@ -733,7 +783,7 @@ const Wallet = {
       App.state.activeWalletIndex -= 1;
     }
     await btcq.setState({
-      wallets: Vault._sanitize(wallets),
+      wallets: Wallet._serialize(wallets),
       activeWalletIndex: App.state.activeWalletIndex,
     });
     toast('已删除', 'success');
@@ -762,6 +812,7 @@ const Wallet = {
 
 Pages.wallet = {
   async refresh() {
+    Vault.refreshBanner();
     const list = $('#wallet-list');
     const wallets = App.state.wallets || [];
     if (wallets.length === 0) {

@@ -1448,3 +1448,20 @@ body::before {
 .vault-input.hidden { display: none; }
 .vault-error { color: #ef4444; font-size: 13px; min-height: 18px; margin: 4px 0 12px; }
 .vault-hint { font-size: 11px; margin-top: 14px; opacity: 0.55; }
+
+/* ============== 钱包页面安全状态条 ============== */
+.vault-banner {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  background: rgba(124, 58, 237, 0.10);
+  border: 1px solid rgba(124, 58, 237, 0.35);
+}
+.vault-banner.hidden { display: none; }
+.vault-banner.warn  { background: rgba(245, 158, 11, 0.10); border-color: rgba(245, 158, 11, 0.35); }
+.vault-banner.ok    { background: rgba(34, 197, 94, 0.10);  border-color: rgba(34, 197, 94, 0.35); }
+.vault-banner-icon { font-size: 24px; }
+.vault-banner-text { flex: 1; }
+.vault-banner-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.vault-banner-sub   { font-size: 12px; opacity: 0.75; }

@@ -77,7 +77,6 @@
           <span class="status-dot" id="conn-dot"></span>
           <span id="conn-text">未连接节点</span>
         </div>
-        <button class="btn btn-ghost btn-sm" data-action="vault-lock" id="vault-lock-btn" style="margin-top:8px;width:100%">🔒 立即锁定</button>
         <div class="sidebar-version">v0.1.7</div>
       </div>
     </aside>
@@ -213,6 +212,16 @@
             <button class="btn btn-secondary" data-action="wallet-import">导入私钥</button>
           </div>
         </header>
+
+        <!-- 钱包安全状态条 -->
+        <div id="vault-banner" class="vault-banner hidden">
+          <div class="vault-banner-icon" id="vault-banner-icon">🔒</div>
+          <div class="vault-banner-text">
+            <div class="vault-banner-title" id="vault-banner-title">钱包未加密</div>
+            <div class="vault-banner-sub" id="vault-banner-sub">建议设置主密码以 AES-256-GCM 加密本机钱包私钥</div>
+          </div>
+          <button class="btn btn-primary" id="vault-banner-btn" data-action="vault-banner-action">设置主密码</button>
+        </div>
 
         <div id="wallet-list" class="wallet-list">
           <div class="card glass">
