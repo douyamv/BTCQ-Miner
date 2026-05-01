@@ -1,32 +1,34 @@
 # BTCQ Miner
 
-> 跨平台量子挖矿桌面客户端 · macOS / Windows / Linux
+> 跨平台量子挖矿桌面客户端（macOS / Windows / Linux）—— 现代化仪表盘 + 内置区块浏览器 + 完整钱包功能
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![electron](https://img.shields.io/badge/electron-33+-blue.svg)
+![status](https://img.shields.io/badge/status-v0.1.4-green)
 
-BTCQ Miner 是 [BTCQ 比特币量子](https://github.com/douyamv/BTCQ) 的官方桌面挖矿客户端。
+BTCQ Miner 是 [BTCQ 比特币量子](https://github.com/douyamv/BTCQ) 的官方桌面客户端。
 
-* **零门槛**：四步引导用户完成 IBM Quantum 免费账号注册 → API Token → 钱包 → 开始挖矿
-* **美观直观**：暗色量子风格 UI，实时显示挖矿状态、链高度、奖励、保真度
-* **跨平台**：基于 Electron，一次代码三平台运行
-* **本地优先**：私钥与 API Token 全部存储在本机，不上传任何服务器
+---
+
+## ✨ 特点
+
+* **左侧菜单 + 右侧功能** — 现代化仪表盘式布局，全部功能一屏可达
+* **零门槛进入** — 无需登录、无需 API key 即可使用大部分功能（区块浏览器、钱包、转账）
+* **挖矿** — 仅当真要挖矿时引导用户注册 IBM Quantum（每月 600 秒免费）
+* **完整功能集**：
+  - 📊 概览 — 链状态、钱包余额、最近区块、致敬榜
+  - 🔍 区块浏览器 — 区块列表 / 详情 / 交易 / mempool
+  - 💰 钱包 — 创建/导入/查看余额/交易历史
+  - ↗ 转账 — 签名 + 广播
+  - ⚓ 抵押 / 解抵押 — PoQ-Stake
+  - ⚛ 量子挖矿 — 引导式 IBM 注册 + 实时挖矿仪表盘
+  - 🌐 网络 — P2P 节点状态、peer 管理
+  - ⚙ 设置 — 量子后端、奖励地址、路径配置
+* **暗色量子风格 UI** — 紫青渐变 + 玻璃态卡片 + 量子粒子背景
 
 ---
 
 ## 快速开始
-
-### 前置依赖
-
-1. **Python 3.10+** 与 BTCQ 协议代码（首次运行时 Miner 会引导设置）
-   ```bash
-   git clone https://github.com/douyamv/BTCQ.git
-   cd BTCQ
-   pip install -r requirements.txt
-   ```
-
-2. **Node.js 18+**（运行 Miner 本身）
-
-### 安装与启动
 
 ```bash
 git clone https://github.com/douyamv/BTCQ-Miner.git
@@ -35,23 +37,62 @@ npm install
 npm start
 ```
 
-启动后跟随引导操作：
+启动后默认进入"概览"页 — 不需要登录。
 
-1. **欢迎屏** → 点击"开始"
-2. **IBM Quantum 注册引导** → 自动跳转到 quantum.ibm.com 注册免费账号（每月 600 秒配额）
-3. **粘贴 API Token** → 测试连接，确认能访问真量子机器
-4. **创建钱包** → 一键生成新地址或导入已有私钥
-5. **进入仪表盘** → 点击"开始挖矿"
+如果要挖矿，进入「挖矿」菜单，按引导 3 步注册 IBM Quantum。
 
 ---
 
-## 仪表盘功能
+## 配套要求
 
-* **量子状态可视化**：24 个 qubit 圆点动态显示当前电路活动
-* **实时统计**：本会话挖到的区块、当前链高度、下一区块奖励、本月剩余配额、运行时长
-* **链信息侧栏**：当前阶段（Bootstrap / 稳态）、难度阈值、抵押状态、bootstrap 剩余块数
-* **实时日志**：量子作业提交、XEB 计算、出块成功一目了然
-* **整链验证**：一键验证你本地链的完整性
+### 协议端
+
+需要本地有 [BTCQ 协议代码](https://github.com/douyamv/BTCQ)：
+
+```bash
+git clone https://github.com/douyamv/BTCQ.git ~/BTCQ
+cd ~/BTCQ && pip install -r requirements.txt
+```
+
+App 会自动在 `~/dd/qxeb`、`~/dd/BTCQ`、`~/BTCQ`、`~/btcq` 等位置查找。也可在「设置」中手动指定。
+
+### Python
+
+3.10+
+
+---
+
+## 截图风格
+
+```
+┌──────────┬────────────────────────────────────────┐
+│ ⊟ 概览   │  概览                                  │
+│ ⊠ 浏览器 │                                        │
+│ ◈ 钱包   │  ┌────────┬────────┬────────┬──────┐ │
+│ ⇄ 转账   │  │ 链高度  │总供应  │下一奖励│挖矿  │ │
+│ ⚓ 抵押   │  │  10    │ 300    │  50    │运行  │ │
+│ ⚛ 挖矿 ● │  └────────┴────────┴────────┴──────┘ │
+│ ⊜ 网络   │                                        │
+│ ⚙ 设置   │  ┌──────────────┬──────────────────┐  │
+│          │  │ 我的钱包      │ 最近区块         │  │
+│ 本地链   │  │              │                  │  │
+│ v0.1.4   │  └──────────────┴──────────────────┘  │
+└──────────┴────────────────────────────────────────┘
+```
+
+每个页面都是独立的右侧内容，左侧菜单永久可见。
+
+---
+
+## 构建打包
+
+```bash
+npm run build:mac    # .dmg + .zip
+npm run build:win    # .exe + portable
+npm run build:linux  # .AppImage + .deb
+```
+
+输出在 `dist/`。
 
 ---
 
@@ -60,43 +101,23 @@ npm start
 | 层 | 技术 |
 |---|---|
 | 桌面框架 | Electron 33+ |
-| UI | 原生 HTML/CSS/JS（无框架，加载快） |
-| 视觉 | 玻璃态卡片 + 紫青渐变 + 量子粒子背景 |
-| 协议层 | 调用 [BTCQ Python 包](https://github.com/douyamv/BTCQ) 的 `scripts/propose.py` |
+| UI | 原生 HTML/CSS/JS（无框架） |
+| 视觉 | 紫青量子渐变 + 玻璃态 + SVG 粒子背景 |
+| 状态 | LocalStorage 风格的 state.json 持久化 |
+| 协议层 | 调用 [BTCQ Python](https://github.com/douyamv/BTCQ) |
 | 加密 | secp256k1 + keccak256（同 Ethereum） |
 
 ---
 
-## 构建打包
+## 路线图
 
-```bash
-# macOS .dmg + .zip
-npm run build:mac
-
-# Windows .exe + portable
-npm run build:win
-
-# Linux .AppImage + .deb
-npm run build:linux
-
-# 全平台
-npm run build:all
-```
-
-输出在 `dist/` 目录。
-
----
-
-## 设置
-
-`⚙ 设置` 按钮可配置：
-
-* **量子后端**：ibm_fez / ibm_marrakesh / ibm_kingston（皆为 Heron r2，156 qubits）
-* **挖矿模式**：真量子机（推荐）或经典模拟（dev 用）
-* **BTCQ 协议路径**：自动检测 `~/dd/qxeb`、`~/dd/BTCQ`、`~/BTCQ` 等
+- v0.2 — 内置 Python 节点托管（无需用户开终端）
+- v0.3 — Web 区块浏览器同步分支
+- v0.4 — 多账户切换 + 助记词
+- v0.5 — 智能合约调用（如有合约层）
 
 ---
 
 ## 许可
 
-MIT License — 见 [LICENSE](LICENSE)
+MIT

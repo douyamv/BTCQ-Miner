@@ -97,6 +97,30 @@ ipcMain.handle('chain:verify', async () => {
   return await new Miner(loadState()).verifyChain();
 });
 
+ipcMain.handle('chain:blocks', async (_e, start, end) => {
+  return await new Miner(loadState()).getBlocks(start, end);
+});
+
+ipcMain.handle('chain:block', async (_e, height) => {
+  return await new Miner(loadState()).getBlock(height);
+});
+
+ipcMain.handle('chain:txs', async (_e, address, limit) => {
+  return await new Miner(loadState()).getTxsForAddress(address, limit);
+});
+
+ipcMain.handle('chain:mempool', async () => {
+  return await new Miner(loadState()).getMempool();
+});
+
+ipcMain.handle('tx:send', async (_e, privateKey, to, amount, kind) => {
+  return await new Miner(loadState()).sendTx(privateKey, to, amount, kind);
+});
+
+ipcMain.handle('wallet:list', async () => {
+  return await new Miner(loadState()).listWallets(loadState().walletDir);
+});
+
 ipcMain.handle('mining:start', async (_e, opts) => {
   if (miner) miner.stop();
   miner = new Miner(loadState());

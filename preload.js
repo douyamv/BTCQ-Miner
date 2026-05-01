@@ -21,6 +21,16 @@ contextBridge.exposeInMainWorld('btcq', {
   chainStats: () => ipcRenderer.invoke('chain:stats'),
   balanceOf: (addr) => ipcRenderer.invoke('chain:balance', addr),
   verifyChain: () => ipcRenderer.invoke('chain:verify'),
+  getBlocks: (start, end) => ipcRenderer.invoke('chain:blocks', start, end),
+  getBlock: (height) => ipcRenderer.invoke('chain:block', height),
+  getTxs: (addr, limit) => ipcRenderer.invoke('chain:txs', addr, limit),
+  getMempool: () => ipcRenderer.invoke('chain:mempool'),
+
+  // 交易
+  sendTx: (privKey, to, amount, kind) => ipcRenderer.invoke('tx:send', privKey, to, amount, kind),
+
+  // 钱包列表
+  listWallets: () => ipcRenderer.invoke('wallet:list'),
 
   // 挖矿
   startMining: (opts) => ipcRenderer.invoke('mining:start', opts),
