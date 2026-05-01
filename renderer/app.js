@@ -154,10 +154,12 @@ async function loadInitialState() {
     };
     console.log('[state] wallet', App.activeWallet.address);
   }
-  if (App.state.nodeUrl) {
-    App.nodeUrl = App.state.nodeUrl;
-    Node.checkConnection();
+  // 默认连本地节点（如未配置）
+  App.nodeUrl = App.state.nodeUrl || 'http://localhost:8333';
+  if (!App.state.nodeUrl) {
+    await btcq.setState({ nodeUrl: App.nodeUrl });
   }
+  await Node.checkConnection();
   // 重刷当前页
   if (App.currentPage in Pages) Pages[App.currentPage].refresh();
 }
@@ -224,38 +226,7 @@ const Pages = {};
 
 Pages.overview = {
   async refresh() {
-    // 1. 钱包卡片显隐
-    const walletCard = $('#overview-wallet-card');
-    const noWalletCta = $('#overview-no-wallet-cta');
-    const row2 = $('#overview-row-2');
-    const wInfo = $('#overview-wallet-info');
-
-    if (App.activeWallet) {
-      walletCard.style.display = '';
-      noWalletCta.style.display = 'none';
-      row2.style.gridTemplateColumns = '1fr 1fr';
-      wInfo.innerHTML = `
-        <div style="margin-bottom:12px">
-          <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">活跃地址</div>
-          <code class="address" style="font-size:13px">${shortAddr(App.activeWallet.address)}</code>
-        </div>
-        <div class="muted" style="font-size:12px">连接节点后查看余额</div>
-      `;
-      // 节点连接时拉余额
-      if (App.nodeConnected) {
-        try {
-          const info = await Node.info();
-          // 节点没暴露 /balance/<addr>，需要客户端遍历区块（昂贵）。
-          // 先暂时显示 connected 状态。完整实现 v0.5 加 /address/{addr} 端点。
-        } catch {}
-      }
-    } else {
-      walletCard.style.display = 'none';
-      noWalletCta.style.display = '';
-      row2.style.gridTemplateColumns = '1fr';
-    }
-
-    // 2. 链状态
+    // 链状态（钱包相关全部移到「我的钱包」页）
     if (App.nodeConnected && App.nodeUrl) {
       try {
         const info = await Node.info();
