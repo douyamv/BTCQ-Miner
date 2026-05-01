@@ -295,76 +295,91 @@
       <section class="page hidden" data-page="mining">
         <header class="page-header">
           <h1>量子挖矿</h1>
-          <p class="page-sub">连接 IBM Quantum 量子机参与 BTCQ 共识</p>
+          <p class="page-sub">挖矿 100% 在 IBM Quantum 真量子机上完成（不在你本机）</p>
         </header>
 
-        <!-- 未配置 IBM 时显示 -->
-        <div id="mining-setup" class="card glass">
-          <div class="setup-hero">
-            <div class="setup-icon">⚛</div>
-            <h2>开始挖矿前需要 IBM Quantum 账号</h2>
-            <p class="muted">每月免费 600 秒量子机时间，足够挖 600+ 个 BTCQ 区块</p>
+        <!-- 进度条 / 引导步骤 -->
+        <div class="card glass" id="mining-wizard">
+          <div class="mining-stepper">
+            <div class="mstep" data-mstep="1"><span class="mstep-no">1</span> 注册 IBM</div>
+            <div class="mstep-line"></div>
+            <div class="mstep" data-mstep="2"><span class="mstep-no">2</span> 获取 API Key</div>
+            <div class="mstep-line"></div>
+            <div class="mstep" data-mstep="3"><span class="mstep-no">3</span> 一键启动</div>
           </div>
-          <div class="setup-steps">
-            <div class="setup-step">
-              <span class="step-no">1</span>
-              <div>
-                <h4>注册免费账号</h4>
-                <p class="muted">访问 quantum.ibm.com，邮箱注册 5 分钟</p>
-                <button class="btn btn-secondary" data-action="open-ibm">打开注册页面 ↗</button>
+
+          <div id="mining-step-1" class="mining-step active">
+            <h2>第 1 步：注册 IBM Quantum 免费账号</h2>
+            <p class="muted">5 分钟邮箱注册，免费送 600 秒/月量子机配额</p>
+            <div class="step-actions">
+              <button class="btn btn-primary btn-lg" data-action="mining-open-ibm-register">打开注册页面 ↗</button>
+              <button class="btn btn-ghost" data-action="mining-step-next">已注册，下一步 →</button>
+            </div>
+          </div>
+
+          <div id="mining-step-2" class="mining-step hidden">
+            <h2>第 2 步：创建你的 API Token</h2>
+            <p class="muted">登录后访问"账户"页 → API Token → "Create token"，复制 64 位字符串</p>
+            <div class="step-actions">
+              <button class="btn btn-primary btn-lg" data-action="mining-open-ibm-token">打开 Token 页面 ↗</button>
+              <button class="btn btn-ghost" data-action="mining-step-next">已复制，下一步 →</button>
+            </div>
+          </div>
+
+          <div id="mining-step-3" class="mining-step hidden">
+            <h2>第 3 步：粘贴 Token 并启动</h2>
+            <label class="field">
+              <span class="field-label">IBM Quantum API Token</span>
+              <textarea id="mining-token-input" rows="3" placeholder="ApiKey-xxxx... 或长串字符"></textarea>
+            </label>
+
+            <div id="mining-precheck" class="precheck-grid">
+              <div class="precheck-item" id="pre-python">
+                <span class="precheck-label">Python 3.10+</span>
+                <span class="precheck-status">检测中…</span>
+              </div>
+              <div class="precheck-item" id="pre-git">
+                <span class="precheck-label">Git</span>
+                <span class="precheck-status">检测中…</span>
+              </div>
+              <div class="precheck-item" id="pre-btcq">
+                <span class="precheck-label">BTCQ 协议代码</span>
+                <span class="precheck-status">检测中…</span>
+              </div>
+              <div class="precheck-item" id="pre-wallet">
+                <span class="precheck-label">挖矿钱包</span>
+                <span class="precheck-status">检测中…</span>
               </div>
             </div>
-            <div class="setup-step">
-              <span class="step-no">2</span>
-              <div>
-                <h4>获取 API Token</h4>
-                <p class="muted">登录后 → 右上角头像 → API Token</p>
-                <button class="btn btn-secondary" data-action="open-token">直达 Token 页面 ↗</button>
-              </div>
+
+            <div class="step-actions">
+              <button class="btn btn-primary btn-lg" data-action="mining-launch" id="mining-launch-btn">
+                ⚛ 一键启动量子挖矿
+              </button>
+              <button class="btn btn-ghost" data-action="mining-stop" id="mining-stop-btn" style="display:none">
+                停止挖矿
+              </button>
             </div>
-            <div class="setup-step">
-              <span class="step-no">3</span>
-              <div>
-                <h4>粘贴 Token 到下方</h4>
-                <textarea id="mining-token-input" rows="3"
-                  placeholder="ApiKey-... 或长串字符（仅本机存储）"></textarea>
-                <button class="btn btn-primary" data-action="mining-test-token">测试连接</button>
-                <span class="status" id="mining-token-status"></span>
+
+            <div class="card glass" style="margin-top:16px">
+              <h3>启动日志</h3>
+              <div id="mining-launch-log" class="log-body" style="max-height:200px">
+                <div class="log-empty muted">点击启动后这里会显示进度...</div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 已配置 IBM 后显示 -->
+        <!-- 已启动后的实时仪表盘 -->
         <div id="mining-dashboard" class="hidden">
           <div class="card glass">
             <div class="mining-control-row">
-              <div class="mining-light" id="mining-light"></div>
+              <div class="mining-light mining" id="mining-light"></div>
               <div class="mining-text">
-                <h2 id="mining-title">未挖矿</h2>
-                <p class="muted" id="mining-subtitle">点击下方按钮开始</p>
+                <h2>量子挖矿运行中</h2>
+                <p class="muted">每 20 分钟一块 · 每块 ~1 秒量子时间</p>
               </div>
-              <button class="btn btn-primary btn-lg" id="mining-toggle" data-action="mining-toggle">
-                开始挖矿
-              </button>
-            </div>
-
-            <div class="quantum-viz">
-              <svg viewBox="0 0 600 200" preserveAspectRatio="xMidYMid meet">
-                <defs>
-                  <linearGradient id="qvgrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.6"/>
-                    <stop offset="50%" stop-color="#22d3ee" stop-opacity="1"/>
-                    <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.6"/>
-                  </linearGradient>
-                </defs>
-                <g id="qubits-row"></g>
-              </svg>
-              <div class="viz-overlay">
-                <div class="viz-stat"><div class="viz-num" id="viz-shots">0</div><div class="viz-label">本轮 shots</div></div>
-                <div class="viz-stat"><div class="viz-num" id="viz-xeb">—</div><div class="viz-label">最新 XEB</div></div>
-                <div class="viz-stat"><div class="viz-num" id="viz-time">—</div><div class="viz-label">接口耗时</div></div>
-              </div>
+              <button class="btn btn-secondary btn-lg" data-action="mining-stop">停止</button>
             </div>
           </div>
 
@@ -375,20 +390,20 @@
               <div class="stat-unit">区块 / +<span id="mining-stat-earnings">0</span> BTCQ</div>
             </div>
             <div class="card glass stat-card">
-              <div class="stat-label">配额剩余</div>
-              <div class="stat-value" id="mining-stat-quota">—</div>
-              <div class="stat-unit">秒</div>
-            </div>
-            <div class="card glass stat-card">
               <div class="stat-label">挖矿时长</div>
               <div class="stat-value" id="mining-stat-uptime">00:00</div>
               <div class="stat-unit">本会话</div>
             </div>
+            <div class="card glass stat-card">
+              <div class="stat-label">下次尝试</div>
+              <div class="stat-value" id="mining-stat-next">—</div>
+              <div class="stat-unit">分钟后</div>
+            </div>
           </div>
 
           <div class="card glass">
-            <h3>挖矿日志</h3>
-            <div id="mining-log" class="log-body">
+            <h3>实时日志（量子机器响应）</h3>
+            <div id="mining-log" class="log-body" style="max-height:280px">
               <div class="log-empty muted">日志将显示在这里...</div>
             </div>
           </div>

@@ -73,6 +73,7 @@ const Node = {
   async mempool() { return this.fetch('/mempool'); },
   async submitTx(tx) { return this.post('/tx', tx); },
   async slashes() { return this.fetch('/slashes'); },
+  async addressInfo(addr) { return this.fetch(`/address/${addr}`); },
 };
 
 // =============== 路由 ===============
@@ -218,10 +219,13 @@ async function handleAction(action, btn) {
     case 'do-stake':           return Stake.stake();
     case 'do-unstake':         return Stake.unstake();
 
-    // 挖矿（v0.1.5：仅文档跳转）
-    case 'mining-test-token':  return toast('挖矿启动需在终端运行 BTCQ Python 协议（见挖矿页文档链接）', '');
-    case 'mining-toggle':      return toast('GUI 内启动挖矿在 v0.2 推出。当前请用终端：python scripts/propose.py', '');
-    case 'mining-open-docs':   return btcq.openExternal('https://github.com/douyamv/BTCQ/blob/main/docs/DEPLOY.md');
+    // 挖矿一键启动（v0.1.6）
+    case 'mining-open-ibm-register': return btcq.openExternal('https://quantum.ibm.com');
+    case 'mining-open-ibm-token':    return btcq.openExternal('https://quantum.ibm.com/account');
+    case 'mining-step-next':         return Mining.next();
+    case 'mining-launch':            return Mining.launch();
+    case 'mining-stop':              return Mining.stop();
+    case 'mining-open-docs':         return btcq.openExternal('https://github.com/douyamv/BTCQ/blob/main/docs/DEPLOY.md');
 
     // 浏览器
     case 'explorer-search':    return Pages.explorer.search();
@@ -599,12 +603,26 @@ Pages.wallet = {
         else if (action === 'remove') Wallet.remove(idx);
       });
     });
-    // 异步拉余额（每个钱包独立请求节点）
+    // 异步拉每个钱包的真实余额（节点 /address/{addr}）
     if (App.nodeConnected) {
       for (let i = 0; i < wallets.length; i++) {
-        // 节点暂无 /address/{addr} 端点。v0.2 加。这里展示 dash 表示功能待实现
-        const balEl = document.getElementById(`bal-${i}`);
-        if (balEl) balEl.textContent = '需节点 /address 端点';
+        const w = wallets[i];
+        Node.addressInfo(w.address).then(r => {
+          const bal = document.getElementById(`bal-${i}`);
+          const stk = document.getElementById(`stk-${i}`);
+          const non = document.getElementById(`nonce-${i}`);
+          if (bal) bal.textContent = fmtBTCQ(r.liquid) + ' BTCQ';
+          if (stk) stk.textContent = fmtBTCQ(r.staked) + ' BTCQ';
+          if (non) non.textContent = r.nonce;
+        }).catch(e => {
+          const bal = document.getElementById(`bal-${i}`);
+          if (bal) bal.textContent = '—';
+        });
+      }
+    } else {
+      for (let i = 0; i < wallets.length; i++) {
+        const bal = document.getElementById(`bal-${i}`);
+        if (bal) bal.textContent = '未连接节点';
       }
     }
   },
@@ -620,25 +638,66 @@ const Send = {
     if (!/^0x[0-9a-fA-F]{40}$/.test(to)) { toast('地址格式错误', 'error'); return; }
     if (!amount || amount <= 0) { toast('金额无效', 'error'); return; }
     try {
-      // nonce 需要从节点查询；v0.5 加 /address/{addr}/nonce 端点
-      const nonce = parseInt(prompt('当前 nonce（v0.5 自动获取）：', '0') || '0');
+      // 从节点取实时 nonce
+      const info = await Node.addressInfo(App.activeWallet.address);
       const tx = await btcq.signTransaction({
         privateKey: App.activeWallet.privateKey,
         recipient: to,
         amount: BigInt(Math.floor(amount * 1e8)).toString(),
-        nonce, kind: 'transfer',
+        nonce: info.nonce,
+        kind: 'transfer',
       });
       const r = await Node.submitTx(tx);
-      if (r.ok) toast(`已广播：${shortHash(tx.tx_hash)}`, 'success');
-      else toast('节点拒绝：' + r.error, 'error');
+      if (r.ok) {
+        toast(`已广播：${shortHash(tx.tx_hash)}`, 'success');
+        $('#send-to').value = '';
+        $('#send-amount').value = '';
+        Pages.send.refresh();
+      } else {
+        toast('节点拒绝：' + r.error, 'error');
+      }
     } catch (e) { toast('发送失败：' + e.message, 'error'); }
   },
 };
 Pages.send = {
-  refresh() {
-    $('#send-current-bal').textContent = App.activeWallet ? '需节点 /address 端点 (v0.5)' : '请先创建钱包';
-    $('#send-current-nonce').textContent = '—';
-    $('#send-mempool').innerHTML = '<div class="empty-state muted">查看待打包交易请前往「区块浏览器 → 待打包」</div>';
+  async refresh() {
+    if (!App.activeWallet) {
+      $('#send-current-bal').textContent = '请先创建钱包（菜单 → 我的钱包）';
+      $('#send-current-nonce').textContent = '—';
+      $('#send-mempool').innerHTML = '<div class="empty-state muted">无活跃钱包</div>';
+      return;
+    }
+    if (!App.nodeConnected) {
+      $('#send-current-bal').textContent = '未连接节点';
+      $('#send-current-nonce').textContent = '—';
+      return;
+    }
+    try {
+      const info = await Node.addressInfo(App.activeWallet.address);
+      $('#send-current-bal').textContent = fmtBTCQ(info.liquid) + ' BTCQ';
+      $('#send-current-nonce').textContent = info.nonce;
+      const mp = await Node.mempool();
+      const txs = mp.transactions || [];
+      const node = $('#send-mempool');
+      if (!txs.length) {
+        node.innerHTML = '<div class="empty-state muted">mempool 为空</div>';
+        return;
+      }
+      node.innerHTML = txs.map(tx => `
+        <div class="tx-row">
+          <div class="tx-icon ${tx.kind === 'transfer' ? 'out' : 'stake'}">${tx.kind === 'transfer' ? '↑' : '⚓'}</div>
+          <div class="tx-info">
+            <div class="tx-kind">${tx.kind}</div>
+            <div class="tx-meta">to ${shortAddr(tx.recipient)} · nonce ${tx.nonce}</div>
+          </div>
+          <div class="tx-amount">${fmtBTCQ(tx.amount)}</div>
+          <div class="muted" style="font-size:11px">${shortHash(tx.tx_hash)}</div>
+        </div>
+      `).join('');
+    } catch (e) {
+      $('#send-current-bal').textContent = '查询失败';
+      $('#send-current-nonce').textContent = '—';
+    }
   },
 };
 
@@ -651,78 +710,190 @@ const Stake = {
     const amount = parseFloat(amountStr);
     if (!amount || amount <= 0) { toast('金额无效', 'error'); return; }
     try {
-      const nonce = parseInt(prompt('当前 nonce：', '0') || '0');
+      const info = await Node.addressInfo(App.activeWallet.address);
       const tx = await btcq.signTransaction({
         privateKey: App.activeWallet.privateKey,
-        recipient: '0x' + '00'.repeat(19) + '01',    // STAKE_VAULT
+        recipient: '0x' + '00'.repeat(19) + '01',
         amount: BigInt(Math.floor(amount * 1e8)).toString(),
-        nonce, kind,
+        nonce: info.nonce, kind,
       });
       const r = await Node.submitTx(tx);
-      if (r.ok) toast(`${kind} 已广播：${amount} BTCQ`, 'success');
-      else toast('失败：' + r.error, 'error');
+      if (r.ok) {
+        toast(`${kind} 已广播：${amount} BTCQ`, 'success');
+        $('#stake-amount').value = '';
+        $('#unstake-amount').value = '';
+        Pages.stake.refresh();
+      } else {
+        toast('失败：' + r.error, 'error');
+      }
     } catch (e) { toast(e.message, 'error'); }
   },
 };
 Pages.stake = {
-  refresh() {
-    $('#stake-liquid').textContent = '—';
-    $('#stake-staked').textContent = '—';
-    $('#stake-cooling').textContent = '—';
-    $('#stake-eligible').textContent = App.activeWallet ? '需节点端点 (v0.5)' : '请先创建钱包';
+  async refresh() {
+    if (!App.activeWallet) {
+      $('#stake-liquid').textContent = '请先创建钱包';
+      $('#stake-staked').textContent = '—';
+      $('#stake-cooling').textContent = '—';
+      $('#stake-eligible').textContent = '—';
+      return;
+    }
+    if (!App.nodeConnected) {
+      ['stake-liquid','stake-staked','stake-cooling','stake-eligible'].forEach(id => $('#' + id).textContent = '未连接节点');
+      return;
+    }
+    try {
+      const info = await Node.addressInfo(App.activeWallet.address);
+      $('#stake-liquid').textContent = fmtBTCQ(info.liquid) + ' BTCQ';
+      $('#stake-staked').textContent = fmtBTCQ(info.staked) + ' BTCQ';
+      $('#stake-cooling').textContent = fmtBTCQ(info.cooling) + ' BTCQ';
+      $('#stake-eligible').textContent = info.eligible ? '✅ 已激活' : '❌ 需 ≥ 1 BTCQ';
+    } catch (e) {
+      ['stake-liquid','stake-staked','stake-cooling','stake-eligible'].forEach(id => $('#' + id).textContent = '查询失败');
+    }
   },
 };
 
-// =============== 挖矿（v0.1.5 仅文档跳转） ===============
-Pages.mining = {
-  refresh() {
-    $('#mining-setup').classList.remove('hidden');
-    $('#mining-dashboard').classList.add('hidden');
-    // 重写 setup 内容：v0.1.5 不在 GUI 内启动挖矿
-    $('#mining-setup').innerHTML = `
-      <div class="setup-hero">
-        <div class="setup-icon">⚛</div>
-        <h2>量子挖矿（GUI 启动 v0.2）</h2>
-        <p class="muted">v0.1.5 GUI 不在本机启动量子挖矿，避免依赖本地 Python。</p>
-      </div>
-      <div class="setup-steps">
-        <div class="setup-step">
-          <span class="step-no">1</span>
-          <div>
-            <h4>注册 IBM Quantum 免费账号</h4>
-            <p class="muted">每月 600 秒配额，足够挖几百块</p>
-            <button class="btn btn-secondary" data-action="open-ibm">打开 quantum.ibm.com ↗</button>
-          </div>
-        </div>
-        <div class="setup-step">
-          <span class="step-no">2</span>
-          <div>
-            <h4>本地运行 BTCQ 协议代码</h4>
-            <p class="muted">在终端：</p>
-            <pre style="background:rgba(0,0,0,0.4);padding:12px;border-radius:8px;font-size:12px;color:#22d3ee;overflow:auto">
-git clone https://github.com/douyamv/BTCQ
-cd BTCQ
-pip install -r requirements.txt
-python scripts/init_chain.py
-python scripts/new_wallet.py
-python scripts/propose.py --quantum --backend ibm_marrakesh
-            </pre>
-            <button class="btn btn-secondary" data-action="mining-open-docs">查看完整部署文档 ↗</button>
-          </div>
-        </div>
-        <div class="setup-step">
-          <span class="step-no">3</span>
-          <div>
-            <h4>用本 GUI 监控你的链</h4>
-            <p class="muted">同时运行 P2P 节点：<code>python scripts/node.py --port 8333</code></p>
-            <p class="muted">然后在「设置 → 节点 URL」填入 <code>http://localhost:8333</code></p>
-          </div>
-        </div>
-      </div>
-    `;
-    $('#mining-status-badge').textContent = '需在终端启动';
+// =============== 挖矿一键启动（v0.1.6） ===============
+const Mining = {
+  currentStep: 1,
+  goStep(n) {
+    Mining.currentStep = n;
+    for (let i = 1; i <= 3; i++) {
+      const el = document.getElementById(`mining-step-${i}`);
+      if (el) el.classList.toggle('hidden', i !== n);
+      const tab = document.querySelector(`.mstep[data-mstep="${i}"]`);
+      if (tab) {
+        tab.classList.toggle('active', i === n);
+        tab.classList.toggle('done', i < n);
+      }
+    }
+  },
+  next() { Mining.goStep(Math.min(Mining.currentStep + 1, 3)); },
+  async checkPre() {
+    if (!btcq.miningCheckSetup) return;
+    try {
+      const setup = await btcq.miningCheckSetup();
+      const set = (id, ok, label) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.toggle('ok', ok);
+        el.classList.toggle('bad', !ok);
+        el.querySelector('.precheck-status').textContent = label;
+      };
+      set('pre-python', !!setup.python, setup.python?.version || '未检测到');
+      set('pre-git',    !!setup.git,    setup.git ? '✓ 已安装' : '未安装');
+      set('pre-btcq',   !!setup.btcqInstalled, setup.btcqInstalled ? '✓ 已下载' : '将自动下载');
+      set('pre-wallet', !!setup.walletExported, setup.walletExported ? '✓ 已导出' : '将自动导出');
+      // 已挖矿则切到 dashboard
+      if (setup.miningRunning) {
+        $('#mining-wizard').classList.add('hidden');
+        $('#mining-dashboard').classList.remove('hidden');
+        Mining._updateStats(setup);
+      } else {
+        $('#mining-wizard').classList.remove('hidden');
+        $('#mining-dashboard').classList.add('hidden');
+      }
+    } catch (e) { console.warn('checkPre fail', e); }
+  },
+  async launch() {
+    const token = $('#mining-token-input').value.trim();
+    if (!token) { toast('请粘贴 API Token', 'error'); return; }
+    if (!App.activeWallet?.privateKey) { toast('请先创建钱包（菜单 → 我的钱包）', 'error'); return; }
+
+    const btn = $('#mining-launch-btn');
+    btn.disabled = true;
+    Mining.log('开始一键启动量子挖矿...', 'event');
+
+    try {
+      // 1. 安装 BTCQ
+      Mining.log('▶ 检测/下载 BTCQ 协议代码...', 'event');
+      const inst = await btcq.miningInstall();
+      if (!inst.ok) { Mining.log('❌ ' + inst.error, 'error'); btn.disabled = false; return; }
+
+      // 2. 保存 Token
+      Mining.log('▶ 保存 IBM Quantum Token 并测试连接...', 'event');
+      const tk = await btcq.miningSaveToken(token);
+      if (!tk.ok) { Mining.log('❌ Token 错误：' + tk.error, 'error'); btn.disabled = false; return; }
+      Mining.log(`✓ 检测到 ${tk.backends.length} 台量子机：${tk.backends.join(', ')}`, 'success');
+
+      // 3. 导出钱包到挖矿目录
+      Mining.log('▶ 导出钱包到挖矿目录（私钥仅写本地）...', 'event');
+      const wal = await btcq.miningExportWallet(App.activeWallet.privateKey);
+      if (!wal.ok) { Mining.log('❌ 钱包导出失败：' + wal.error, 'error'); btn.disabled = false; return; }
+      Mining.log(`✓ 挖矿地址 ${wal.address}`, 'success');
+
+      // 4. 启动守护进程
+      Mining.log('▶ 启动挖矿守护进程（20 分钟一块，每块约 1 秒量子时间）...', 'event');
+      const start = await btcq.miningStart({
+        interval: 1200,
+        backend: tk.backends[0] || 'ibm_marrakesh',
+        shots: 4096,
+      });
+      if (!start.ok) { Mining.log('❌ 启动失败：' + start.error, 'error'); btn.disabled = false; return; }
+      Mining.log('✅ 挖矿已启动！量子机器开始执行你的电路', 'success');
+      $('#mining-launch-btn').style.display = 'none';
+      $('#mining-stop-btn').style.display = '';
+      // 切换到仪表盘
+      setTimeout(() => Mining.checkPre(), 1500);
+    } catch (e) {
+      Mining.log('❌ 异常：' + e.message, 'error');
+    }
+    btn.disabled = false;
+  },
+  async stop() {
+    await btcq.miningStop();
+    Mining.log('■ 已停止', 'event');
+    setTimeout(() => Mining.checkPre(), 1000);
+  },
+  log(text, level = '') {
+    const targets = ['#mining-launch-log', '#mining-log'];
+    const ts = new Date().toLocaleTimeString('zh-CN');
+    targets.forEach(sel => {
+      const body = $(sel);
+      if (!body) return;
+      if (body.querySelector('.log-empty')) body.innerHTML = '';
+      const line = document.createElement('div');
+      line.className = 'log-line ' + level;
+      line.innerHTML = `<span class="ts">${ts}</span>${text}`;
+      body.appendChild(line);
+      while (body.children.length > 200) body.removeChild(body.firstChild);
+      body.scrollTop = body.scrollHeight;
+    });
+  },
+  _updateStats(s) {
+    $('#mining-stat-mined').textContent = s.blocksMined || 0;
+    $('#mining-stat-earnings').textContent = (s.blocksMined || 0) * 50;
+    if (s.uptime) {
+      const sec = Math.floor(s.uptime / 1000);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const r = sec % 60;
+      $('#mining-stat-uptime').textContent = (h ? String(h).padStart(2,'0') + ':' : '') +
+        String(m).padStart(2,'0') + ':' + String(r).padStart(2,'0');
+    }
   },
 };
+Pages.mining = {
+  async refresh() {
+    Mining.goStep(Mining.currentStep);
+    await Mining.checkPre();
+  },
+};
+
+// 监听挖矿事件
+if (window.btcq?.onMiningEvent) {
+  btcq.onMiningEvent(ev => {
+    if (ev.type === 'install-progress' || ev.type === 'log') {
+      Mining.log(ev.text || ev.msg, ev.level === 'error' ? 'error' : (ev.level === 'warn' ? '' : ''));
+    } else if (ev.type === 'mining-started') {
+      Mining.log(`▶ 挖矿启动 backend=${ev.backend} 间隔=${ev.interval}s`, 'event');
+    } else if (ev.type === 'mining-stopped') {
+      Mining.log('■ 挖矿停止', 'event');
+      setTimeout(() => Mining.checkPre(), 800);
+    }
+  });
+}
 
 // =============== 网络 ===============
 const Network = {

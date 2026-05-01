@@ -841,7 +841,98 @@ body::before {
   border: 1px solid var(--border-soft);
 }
 
-/* ============ 挖矿页 ============ */
+/* ============ 挖矿向导（v0.1.6） ============ */
+.mining-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 28px;
+  justify-content: center;
+}
+.mstep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 100px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-soft);
+}
+.mstep.active {
+  background: var(--gradient-primary);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 0 16px rgba(124, 58, 237, 0.3);
+}
+.mstep.done {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: var(--success);
+  color: var(--success);
+}
+.mstep-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  font-weight: 700;
+}
+.mstep-line {
+  flex: 0 0 32px;
+  height: 1px;
+  background: var(--border-soft);
+}
+
+.mining-step {
+  text-align: center;
+  padding: 24px 16px;
+}
+.mining-step.hidden { display: none; }
+.mining-step h2 { font-size: 22px; margin-bottom: 8px; }
+.mining-step .field {
+  text-align: left;
+  max-width: 600px;
+  margin: 16px auto;
+}
+.step-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.precheck-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  max-width: 600px;
+  margin: 16px auto;
+  text-align: left;
+}
+.precheck-item {
+  display: flex;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid var(--border-soft);
+}
+.precheck-label { color: var(--text-secondary); }
+.precheck-status {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.precheck-item.ok .precheck-status { color: var(--success); }
+.precheck-item.bad .precheck-status { color: var(--danger); }
+
+/* ============ 挖矿页（旧） ============ */
 .setup-hero {
   text-align: center;
   padding: 32px 24px;

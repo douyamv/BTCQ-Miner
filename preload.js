@@ -87,18 +87,27 @@ function concat(...arrs) {
 // ================== 暴露给渲染层 ==================
 try {
   contextBridge.exposeInMainWorld('btcq', {
-    // 状态
     getState: () => ipcRenderer.invoke('state:get'),
     setState: (patch) => ipcRenderer.invoke('state:set', patch),
-
-    // shell
     openExternal: (url) => ipcRenderer.invoke('shell:open', url),
     selectFolder: () => ipcRenderer.invoke('dialog:select-folder'),
-
-    // 钱包（纯 JS，零延迟）
     generateWallet,
     walletFromPrivate,
     signTransaction,
+
+    // 挖矿一键启动
+    miningCheckSetup: () => ipcRenderer.invoke('mining:check_setup'),
+    miningInstall: () => ipcRenderer.invoke('mining:install_btcq'),
+    miningSaveToken: (token) => ipcRenderer.invoke('mining:save_token', token),
+    miningExportWallet: (privateKey) => ipcRenderer.invoke('mining:export_wallet', privateKey),
+    miningStart: (opts) => ipcRenderer.invoke('mining:start', opts),
+    miningStop: () => ipcRenderer.invoke('mining:stop'),
+    miningStatus: () => ipcRenderer.invoke('mining:status'),
+    onMiningEvent: (cb) => {
+      const handler = (_e, ev) => cb(ev);
+      ipcRenderer.on('mining:event', handler);
+      return () => ipcRenderer.removeListener('mining:event', handler);
+    },
 
     platform: process.platform,
   });
