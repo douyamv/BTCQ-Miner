@@ -77,6 +77,7 @@ const Node = {
   async submitTx(tx) { return this.post('/tx', tx); },
   async slashes() { return this.fetch('/slashes'); },
   async addressInfo(addr) { return this.fetch(`/address/${addr}`); },
+  async addressTxs(addr, limit = 50) { return this.fetch(`/address/${addr}/txs?limit=${limit}`); },
 };
 
 // =============== 路由 ===============
@@ -127,6 +128,11 @@ function boot() {
     if (e.key === 'Enter' && !$('#vault-overlay').classList.contains('hidden')) {
       e.preventDefault();
       Vault.submit();
+    }
+    // 浏览器搜索框回车
+    if (e.key === 'Enter' && document.activeElement?.id === 'explorer-search') {
+      e.preventDefault();
+      Pages.explorer.search();
     }
   });
 
@@ -586,13 +592,17 @@ Pages.explorer = {
           <td>${esc(b.slot)}</td>
           <td>${esc(fmtTime(b.timestamp))}</td>
           <td class="hash-cell">${esc(shortHash(b.block_hash))}</td>
-          <td class="hash-cell">${esc(shortAddr(b.proposer_address))}</td>
+          <td class="hash-cell"><a href="#" data-addr="${esc(b.proposer_address)}">${esc(shortAddr(b.proposer_address))}</a></td>
           <td>${esc((b.transactions || []).length)}</td>
           <td>${esc(parseFloat(b.xeb_score).toFixed(2))}</td>
         </tr>
       `).join('');
       $('#explorer-blocks-tbody').querySelectorAll('tr[data-block-h]').forEach(tr => {
-        tr.addEventListener('click', () => this.showBlock(parseInt(tr.dataset.blockH)));
+        tr.addEventListener('click', (e) => {
+          const a = e.target.closest('[data-addr]');
+          if (a) { e.stopPropagation(); e.preventDefault(); this.showAddress(a.dataset.addr); return; }
+          this.showBlock(parseInt(tr.dataset.blockH));
+        });
       });
       $('#explorer-page-info').textContent = `${start}–${end} / 共 ${this.total}`;
     } catch (e) {
@@ -636,8 +646,15 @@ Pages.explorer = {
   },
   search() {
     const q = $('#explorer-search').value.trim();
-    if (/^\d+$/.test(q)) this.showBlock(parseInt(q));
-    else toast('暂仅支持按区块高度查找', '');
+    if (!q) return;
+    if (/^\d+$/.test(q)) return this.showBlock(parseInt(q));
+    if (/^0x[0-9a-fA-F]{40}$/.test(q)) return this.showAddress(q.toLowerCase());
+    if (/^[0-9a-fA-F]{40}$/.test(q)) return this.showAddress('0x' + q.toLowerCase());
+    if (/^0x[0-9a-fA-F]{64}$/.test(q)) {
+      toast('交易/区块哈希查询 v0.2 上线', '');
+      return;
+    }
+    toast('支持：区块高度（数字）/ 地址（0x...40 hex）', 'error');
   },
   prevPage() { if (App.explorer.page > 0) { App.explorer.page--; this.refreshBlocks(); } },
   nextPage() {
@@ -654,7 +671,9 @@ Pages.explorer = {
         <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:8px;margin-top:8px;font-size:12px">
           <div><strong>#${esc(i)}</strong> · ${esc(tx.kind)} · ${esc(fmtBTCQ(tx.amount))} BTCQ</div>
           <div class="muted" style="font-family:var(--font-mono);font-size:11px;margin-top:4px">
-            from: ${esc(tx.sender)}<br>to: ${esc(tx.recipient)}<br>nonce: ${esc(tx.nonce)}
+            from: <a href="#" data-addr="${esc(tx.sender)}">${esc(tx.sender)}</a><br>
+            to: <a href="#" data-addr="${esc(tx.recipient)}">${esc(tx.recipient)}</a><br>
+            nonce: ${esc(tx.nonce)}
           </div>
         </div>
       `).join('') || '<div class="muted" style="margin-top:8px">无交易</div>';
@@ -667,20 +686,89 @@ Pages.explorer = {
           <dt>区块哈希</dt><dd>${esc(block.block_hash)}</dd>
           <dt>前一区块哈希</dt><dd>${esc(block.prev_hash)}</dd>
           <dt>State Root</dt><dd>${esc(block.state_root || '—')}</dd>
-          <dt>出块人</dt><dd>${esc(block.proposer_address)}</dd>
+          <dt>出块人</dt><dd><a href="#" data-addr="${esc(block.proposer_address)}">${esc(block.proposer_address)}</a></dd>
           <dt>XEB</dt><dd>${esc(parseFloat(block.xeb_score).toFixed(4))}</dd>
           <dt>奖励</dt><dd>${esc(fmtBTCQ(block.reward || 0))} BTCQ</dd>
           <dt>电路</dt><dd>n=${esc(block.n_qubits)}, depth=${esc(block.depth)}, samples=${esc(block.n_samples)}</dd>
           <dt>交易（${esc((block.transactions || []).length)} 笔）</dt><dd>${txList}</dd>
         </dl>
       `;
+      // 块详情里点地址 → 地址详情
+      $('#block-detail-content').querySelectorAll('[data-addr]').forEach(a => {
+        a.addEventListener('click', (e) => { e.preventDefault(); this.showAddress(a.dataset.addr.toLowerCase()); });
+      });
     } catch (e) { toast('区块加载失败: ' + e.message, 'error'); }
   },
   showList() {
     $('#explorer-blocks-view').classList.remove('hidden');
     $('#explorer-block-detail').classList.add('hidden');
+    $('#explorer-address-detail').classList.add('hidden');
     $('#explorer-mempool-view').classList.add('hidden');
     this.refreshBlocks();
+  },
+  async showAddress(addr) {
+    if (!App.nodeConnected) { toast('未连接节点', 'error'); return; }
+    $('#explorer-blocks-view').classList.add('hidden');
+    $('#explorer-block-detail').classList.add('hidden');
+    $('#explorer-mempool-view').classList.add('hidden');
+    $('#explorer-address-detail').classList.remove('hidden');
+    $('#addr-detail-addr').textContent = addr;
+    $('#addr-detail-liquid').textContent = '查询中...';
+    $('#addr-detail-staked').textContent = '—';
+    $('#addr-detail-cooling').textContent = '—';
+    $('#addr-detail-total').textContent = '—';
+    $('#addr-detail-nonce').textContent = '—';
+    $('#addr-detail-bootstrap').textContent = '—';
+    $('#addr-detail-tx-tbody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:20px">加载中...</td></tr>`;
+    $('#addr-detail-tx-count').textContent = '加载中...';
+    try {
+      const [info, txs] = await Promise.all([
+        Node.addressInfo(addr),
+        Node.addressTxs(addr, 50),
+      ]);
+      $('#addr-detail-liquid').textContent = fmtBTCQ(info.liquid) + ' BTCQ';
+      $('#addr-detail-staked').textContent = fmtBTCQ(info.staked) + ' BTCQ';
+      $('#addr-detail-cooling').textContent = fmtBTCQ(info.cooling) + ' BTCQ';
+      $('#addr-detail-total').textContent = fmtBTCQ(info.total) + ' BTCQ';
+      $('#addr-detail-nonce').textContent = info.nonce;
+      $('#addr-detail-bootstrap').textContent = (info.bootstrap_blocks || 0) + ' 块';
+      const list = txs.transactions || [];
+      $('#addr-detail-tx-count').textContent = `共 ${list.length} 条`;
+      const tbody = $('#addr-detail-tx-tbody');
+      if (!list.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:20px">该地址暂无相关交易</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = list.map(tx => {
+        const isOut = tx.sender && tx.sender.toLowerCase() === addr.toLowerCase();
+        const isIn  = tx.recipient && tx.recipient.toLowerCase() === addr.toLowerCase();
+        let dir = 'self', dirText = '↔ 自己', dirClass = 'tx-dir-self', counterparty = addr;
+        if (tx.kind === 'block_reward') {
+          dir = 'reward'; dirText = '⚛ 出块奖励'; dirClass = 'tx-dir-in'; counterparty = '—';
+        } else if (isOut && !isIn) {
+          dir = 'out'; dirText = '↗ 转出'; dirClass = 'tx-dir-out'; counterparty = tx.recipient;
+        } else if (isIn && !isOut) {
+          dir = 'in'; dirText = '↙ 转入'; dirClass = 'tx-dir-in'; counterparty = tx.sender;
+        }
+        const status = tx.status === 'pending' ? '待打包' : '✓ 已确认';
+        const statusClass = tx.status === 'pending' ? 'tx-status-pending' : 'tx-status-confirmed';
+        const heightCell = tx.height == null ? '—' : `#${esc(tx.height)}${tx.slot != null ? ' / s' + esc(tx.slot) : ''}`;
+        const timeCell = tx.timestamp ? esc(fmtTime(tx.timestamp)) : '—';
+        return `
+          <tr>
+            <td><span class="${statusClass}">${esc(status)}</span></td>
+            <td>${esc(tx.kind)}</td>
+            <td><span class="${dirClass}">${esc(dirText)}</span></td>
+            <td class="hash-cell">${esc(shortAddr(counterparty))}</td>
+            <td>${esc(fmtBTCQ(tx.amount))}</td>
+            <td>${heightCell}</td>
+            <td>${timeCell}</td>
+          </tr>`;
+      }).join('');
+    } catch (e) {
+      $('#addr-detail-liquid').textContent = '查询失败';
+      $('#addr-detail-tx-tbody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:20px">查询失败：${esc(e.message)}</td></tr>`;
+    }
   },
 };
 
@@ -831,7 +919,7 @@ Pages.wallet = {
       <div class="wallet-row-card ${i === App.state.activeWalletIndex ? 'active' : ''}" data-wallet-idx="${esc(i)}">
         <div class="wallet-row-num">${esc(w.name)}</div>
         <div class="wallet-row-info">
-          <code class="wallet-row-addr">${esc(w.address)}</code>
+          <code class="wallet-row-addr"><a href="#" data-explorer-addr="${esc(w.address)}">${esc(w.address)}</a></code>
           ${i === App.state.activeWalletIndex ? '<span class="wallet-row-active-tag">活跃</span>' : ''}
           <div class="wallet-row-meta">
             <span>余额: <strong id="bal-${esc(i)}">读取中...</strong></span>
@@ -859,6 +947,14 @@ Pages.wallet = {
         else if (action === 'show-key') Wallet.showKey(idx);
         else if (action === 'copy-addr') Wallet.copyAddr(idx, btn);
         else if (action === 'remove') Wallet.remove(idx);
+      });
+    });
+    // 点地址 → 区块浏览器地址详情
+    list.querySelectorAll('[data-explorer-addr]').forEach(a => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        showPage('explorer');
+        setTimeout(() => Pages.explorer.showAddress(a.dataset.explorerAddr), 100);
       });
     });
     // 异步拉每个钱包的真实余额（节点 /address/{addr}）

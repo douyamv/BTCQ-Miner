@@ -1465,3 +1465,34 @@ body::before {
 .vault-banner-text { flex: 1; }
 .vault-banner-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
 .vault-banner-sub   { font-size: 12px; opacity: 0.75; }
+
+/* ============== 地址详情 ============== */
+.addr-big {
+  display: block;
+  font-family: var(--font-mono, monospace);
+  font-size: 14px;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  user-select: text;
+}
+.addr-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.addr-stat {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.addr-stat-label { font-size: 11px; opacity: 0.65; margin-bottom: 4px; }
+.addr-stat-value { font-size: 17px; font-weight: 600; }
+.tx-dir-in  { color: #22c55e; }
+.tx-dir-out { color: #f97316; }
+.tx-dir-self{ color: #94a3b8; }
+.tx-status-pending  { color: #f59e0b; }
+.tx-status-confirmed{ color: #22c55e; }

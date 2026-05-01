@@ -140,7 +140,7 @@
         <div class="card glass explorer-toolbar">
           <div class="search-box">
             <input type="text" id="explorer-search"
-                   placeholder="搜索区块高度 / 区块哈希 / 交易哈希 / 地址" />
+                   placeholder="搜索区块高度（如 1438）或地址（0x...）" />
             <button class="btn btn-secondary" data-action="explorer-search">搜索</button>
           </div>
           <div class="explorer-tabs">
@@ -178,6 +178,43 @@
           <button class="btn btn-ghost" data-action="explorer-back">← 返回列表</button>
           <div class="card glass">
             <div id="block-detail-content"></div>
+          </div>
+        </div>
+
+        <!-- 地址详情 -->
+        <div id="explorer-address-detail" class="explorer-view hidden">
+          <button class="btn btn-ghost" data-action="explorer-back">← 返回列表</button>
+          <div class="card glass">
+            <h2 style="margin-bottom:8px">地址详情</h2>
+            <code id="addr-detail-addr" class="addr-big"></code>
+            <div class="addr-stats">
+              <div class="addr-stat"><div class="addr-stat-label">流通余额</div><div class="addr-stat-value" id="addr-detail-liquid">—</div></div>
+              <div class="addr-stat"><div class="addr-stat-label">抵押</div><div class="addr-stat-value" id="addr-detail-staked">—</div></div>
+              <div class="addr-stat"><div class="addr-stat-label">解抵押冷却中</div><div class="addr-stat-value" id="addr-detail-cooling">—</div></div>
+              <div class="addr-stat"><div class="addr-stat-label">总额</div><div class="addr-stat-value" id="addr-detail-total">—</div></div>
+              <div class="addr-stat"><div class="addr-stat-label">Nonce</div><div class="addr-stat-value" id="addr-detail-nonce">—</div></div>
+              <div class="addr-stat"><div class="addr-stat-label">Bootstrap 出块</div><div class="addr-stat-value" id="addr-detail-bootstrap">—</div></div>
+            </div>
+          </div>
+          <div class="card glass no-padding" style="margin-top:16px">
+            <div style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
+              <strong>相关交易（最近 50 条）</strong>
+              <span class="muted" id="addr-detail-tx-count" style="font-size:12px">—</span>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>类型</th>
+                  <th>方向</th>
+                  <th>对方</th>
+                  <th>金额 (BTCQ)</th>
+                  <th>高度 / Slot</th>
+                  <th>时间</th>
+                </tr>
+              </thead>
+              <tbody id="addr-detail-tx-tbody"></tbody>
+            </table>
           </div>
         </div>
 
