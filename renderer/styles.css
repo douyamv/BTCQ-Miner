@@ -848,7 +848,113 @@ body::before {
   border: 1px solid var(--border-soft);
 }
 
-/* ============ 挖矿向导（v0.1.6） ============ */
+/* ============ 挖矿进度（v0.1.7 单进度条） ============ */
+.mining-progress-hero {
+  text-align: center;
+  padding: 40px 24px 24px;
+}
+.mining-percent {
+  font-family: var(--font-mono);
+  font-size: 72px;
+  font-weight: 800;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 24px var(--accent-glow));
+  margin-bottom: 12px;
+  letter-spacing: -2px;
+  font-variant-numeric: tabular-nums;
+}
+.mining-progress-bar {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto 16px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-soft);
+  border-radius: 100px;
+  overflow: hidden;
+  position: relative;
+}
+.mining-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--gradient-primary);
+  border-radius: 100px;
+  box-shadow: 0 0 24px rgba(124, 58, 237, 0.5);
+  transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: relative;
+}
+.mining-progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: shine 2s linear infinite;
+}
+@keyframes shine {
+  0% { background-position: -50% 0; }
+  100% { background-position: 150% 0; }
+}
+.mining-stage {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.mining-apikey-prompt {
+  max-width: 600px;
+  margin: 24px auto 0;
+  padding: 24px;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  border-radius: var(--radius-lg);
+  animation: fade-in 0.5s ease;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.mining-apikey-prompt.hidden { display: none; }
+.apikey-bigtitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.mining-apikey-prompt textarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+}
+.mining-apikey-prompt textarea:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px var(--cyan-glow);
+}
+.apikey-help {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius);
+}
+.apikey-help a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+.apikey-help a:hover { text-decoration: underline; }
+
+/* ============ 挖矿向导（v0.1.6 旧） ============ */
 .mining-stepper {
   display: flex;
   align-items: center;

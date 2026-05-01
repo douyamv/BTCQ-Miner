@@ -319,90 +319,52 @@
           </div>
         </div>
 
-        <!-- 引导向导 -->
+        <!-- 进度页：单进度条 + 90% 求 API Key -->
         <div class="card glass hidden" id="mining-wizard">
-          <div class="mining-stepper">
-            <div class="mstep" data-mstep="1"><span class="mstep-no">1</span> 准备本机</div>
-            <div class="mstep-line"></div>
-            <div class="mstep" data-mstep="2"><span class="mstep-no">2</span> 注册 IBM</div>
-            <div class="mstep-line"></div>
-            <div class="mstep" data-mstep="3"><span class="mstep-no">3</span> 填入 API Key</div>
+          <div class="mining-progress-hero">
+            <div class="mining-percent" id="mining-percent">0%</div>
+            <div class="mining-progress-bar">
+              <div class="mining-progress-fill" id="mining-progress-fill"></div>
+            </div>
+            <div class="mining-stage" id="mining-stage">即将开始...</div>
           </div>
 
-          <!-- 第 1 步：本机环境检测 + 自动安装 -->
-          <div id="mining-step-1" class="mining-step active">
-            <h2>第 1 步：准备本机环境</h2>
-            <p class="muted">系统检测中，缺啥自动装啥...</p>
-            <div class="precheck-grid">
-              <div class="precheck-item" id="pre-python">
-                <span class="precheck-label">Python 3.10+</span>
-                <span class="precheck-status">检测中…</span>
-              </div>
-              <div class="precheck-item" id="pre-git">
-                <span class="precheck-label">Git</span>
-                <span class="precheck-status">检测中…</span>
-              </div>
-              <div class="precheck-item" id="pre-btcq">
-                <span class="precheck-label">BTCQ 协议代码</span>
-                <span class="precheck-status">检测中…</span>
-              </div>
-              <div class="precheck-item" id="pre-wallet">
-                <span class="precheck-label">GUI 钱包</span>
-                <span class="precheck-status">检测中…</span>
-              </div>
-            </div>
-            <div class="step-actions">
-              <button class="btn btn-primary btn-lg" data-action="mining-prepare" id="mining-prepare-btn">
-                自动安装 BTCQ 协议
-              </button>
-              <button class="btn btn-ghost" data-action="mining-step-next" id="mining-step1-next">
-                已就绪，下一步 →
-              </button>
-            </div>
-            <div class="card glass" style="margin-top:16px">
-              <h3>安装日志</h3>
-              <div id="mining-launch-log" class="log-body" style="max-height:200px">
-                <div class="log-empty muted">检测完成后这里会显示进度...</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 第 2 步：注册 IBM -->
-          <div id="mining-step-2" class="mining-step hidden">
-            <h2>第 2 步：注册 IBM Quantum 免费账号</h2>
-            <p class="muted">5 分钟邮箱注册，免费送 600 秒/月量子机配额，足够挖一两百个区块</p>
-            <div class="step-actions">
-              <button class="btn btn-primary btn-lg" data-action="mining-open-ibm-register">
-                打开 IBM 注册页面 ↗
-              </button>
-              <button class="btn btn-ghost" data-action="mining-step-next">已注册，下一步 →</button>
-            </div>
-            <p class="muted" style="margin-top:24px;font-size:12px">
-              IBM 是全球最大的量子云提供商之一，注册免费、永久免费配额、不需要信用卡
+          <!-- 90% 时弹出的 API Key 输入区 -->
+          <div class="mining-apikey-prompt hidden" id="mining-apikey-prompt">
+            <div class="apikey-bigtitle">最后 10%</div>
+            <p class="muted" style="margin-bottom:12px;font-size:14px">
+              填入你的 <strong>IBM Quantum API Token</strong> 即可开始挖矿
             </p>
+            <textarea id="mining-token-input" rows="3"
+              placeholder="ApiKey-xxxx... 或长串字符（仅本机存储）"></textarea>
+            <button class="btn btn-primary btn-lg btn-block" data-action="mining-launch" id="mining-launch-btn"
+                    style="margin-top:12px;font-size:15px;padding:14px 32px">
+              ⚛ 完成最后 10%，启动挖矿
+            </button>
+            <details style="margin-top:16px">
+              <summary class="muted" style="cursor:pointer;font-size:13px">
+                还没有 API Token？点这里 5 分钟搞定 →
+              </summary>
+              <div class="apikey-help">
+                <p class="muted" style="font-size:12px;margin:8px 0">
+                  IBM Quantum 免费送你每月 600 秒量子机时间，注册无需信用卡。
+                </p>
+                <ol style="font-size:13px;color:var(--text-secondary);padding-left:20px;line-height:1.8">
+                  <li><a href="#" data-link="https://quantum.ibm.com">打开 quantum.ibm.com</a> 用邮箱注册（5 分钟）</li>
+                  <li>登录后，<a href="#" data-link="https://quantum.ibm.com/account">打开账户页</a> → API Token → Create token</li>
+                  <li>复制粘贴到上方输入框 → 点击启动</li>
+                </ol>
+              </div>
+            </details>
           </div>
 
-          <!-- 第 3 步：API Key + 启动 -->
-          <div id="mining-step-3" class="mining-step hidden">
-            <h2>第 3 步：填入 API Key，开始挖矿</h2>
-            <p class="muted">最后一步！登录后访问"账户"页 → API Token → "Create token"，复制粘贴到这里</p>
-            <div class="step-actions" style="margin-bottom:16px">
-              <button class="btn btn-secondary" data-action="mining-open-ibm-token">
-                打开 Token 创建页 ↗
-              </button>
+          <!-- 启动详细日志（折叠默认） -->
+          <details style="margin-top:24px" id="mining-log-details">
+            <summary class="muted" style="cursor:pointer;font-size:12px">查看详细日志</summary>
+            <div id="mining-launch-log" class="log-body" style="max-height:200px;margin-top:8px">
+              <div class="log-empty muted">日志将显示在这里...</div>
             </div>
-            <label class="field">
-              <span class="field-label">IBM Quantum API Token</span>
-              <textarea id="mining-token-input" rows="3" placeholder="ApiKey-xxxx... 或长串字符（仅本机存储）"></textarea>
-            </label>
-
-            <div class="step-actions">
-              <button class="btn btn-primary btn-lg" data-action="mining-launch" id="mining-launch-btn"
-                      style="font-size:15px;padding:14px 32px">
-                ⚛ 启动量子挖矿
-              </button>
-            </div>
-          </div>
+          </details>
         </div>
 
         <!-- 已启动后的实时仪表盘 -->
