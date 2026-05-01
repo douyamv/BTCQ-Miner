@@ -1,6 +1,6 @@
 {
   "name": "btcq-miner",
-  "version": "0.1.0",
+  "version": "0.1.7",
   "description": "BTCQ 比特币量子 — 跨平台量子挖矿桌面客户端",
   "main": "main.js",
   "author": "douyamv",

@@ -22,11 +22,18 @@ function generateWallet() {
   const priv = crypto.randomBytes(32);
   return walletFromPrivate(priv);
 }
+// secp256k1 曲线阶 n（私钥必须 ∈ [1, n-1]）
+const SECP256K1_N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
 function walletFromPrivate(priv) {
   const privBytes = priv instanceof Uint8Array || Buffer.isBuffer(priv)
     ? Uint8Array.from(priv)
     : hexToBytes(priv);
   if (privBytes.length !== 32) throw new Error('私钥必须是 32 字节');
+  // 越界检查：!= 0 && < n
+  let big = 0n;
+  for (const b of privBytes) big = (big << 8n) | BigInt(b);
+  if (big === 0n) throw new Error('私钥不能为 0');
+  if (big >= SECP256K1_N) throw new Error('私钥超出 secp256k1 曲线阶');
   const key = ec.keyFromPrivate(privBytes);
   // 未压缩公钥：04 || X(32) || Y(32) → 切掉前缀，剩 64 字节
   const pubHex = key.getPublic(false, 'hex');     // '04' + x + y
@@ -85,11 +92,59 @@ function concat(...arrs) {
   return out;
 }
 
+// ================== 加密：scrypt + AES-256-GCM ==================
+const KDF_PARAMS = { N: 1 << 15, r: 8, p: 1, dkLen: 32 };  // ~50ms, 32MB
+function scryptKey(password, salt) {
+  return crypto.scryptSync(password, salt, KDF_PARAMS.dkLen, {
+    N: KDF_PARAMS.N, r: KDF_PARAMS.r, p: KDF_PARAMS.p, maxmem: 64 * 1024 * 1024,
+  });
+}
+function encryptSecret(plaintext, password) {
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const key = scryptKey(password, salt);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    v: 1,
+    kdf: 'scrypt',
+    N: KDF_PARAMS.N, r: KDF_PARAMS.r, p: KDF_PARAMS.p,
+    salt: salt.toString('hex'),
+    iv: iv.toString('hex'),
+    ct: enc.toString('hex'),
+    tag: tag.toString('hex'),
+  };
+}
+function decryptSecret(blob, password) {
+  if (!blob || blob.v !== 1) throw new Error('密文格式错误');
+  const salt = Buffer.from(blob.salt, 'hex');
+  const iv = Buffer.from(blob.iv, 'hex');
+  const ct = Buffer.from(blob.ct, 'hex');
+  const tag = Buffer.from(blob.tag, 'hex');
+  const key = scryptKey(password, salt);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const dec = Buffer.concat([decipher.update(ct), decipher.final()]);
+  return dec.toString('utf8');
+}
+// 用一段固定的 magic 加密保存以验证密码（避免错密码 silent 解密垃圾）
+const VERIFY_MAGIC = 'BTCQ-WALLET-VERIFY-v1';
+function makeVerifier(password) { return encryptSecret(VERIFY_MAGIC, password); }
+function checkVerifier(blob, password) {
+  try { return decryptSecret(blob, password) === VERIFY_MAGIC; }
+  catch { return false; }
+}
+
 // ================== 暴露给渲染层 ==================
 try {
   contextBridge.exposeInMainWorld('btcq', {
     getState: () => ipcRenderer.invoke('state:get'),
     setState: (patch) => ipcRenderer.invoke('state:set', patch),
+    encryptSecret,
+    decryptSecret,
+    makeVerifier,
+    checkVerifier,
     openExternal: (url) => ipcRenderer.invoke('shell:open', url),
     selectFolder: () => ipcRenderer.invoke('dialog:select-folder'),
     generateWallet,

@@ -1405,3 +1405,46 @@ body::before {
   .nav-item span:not(.nav-icon):not(.nav-badge) { display: none; }
   .brand div, .sidebar-status, .sidebar-version { display: none; }
 }
+
+/* ============== 钱包锁屏 ============== */
+.vault-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(6, 7, 13, 0.92);
+  backdrop-filter: blur(16px);
+  display: flex; align-items: center; justify-content: center;
+}
+.vault-overlay.hidden { display: none; }
+.vault-card {
+  width: min(440px, 92vw);
+  padding: 36px 32px;
+  text-align: center;
+  border-radius: 18px;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+.vault-icon {
+  font-size: 56px;
+  background: linear-gradient(135deg, #7c3aed, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-bottom: 8px;
+}
+.vault-title { font-size: 24px; margin: 4px 0 6px; }
+.vault-sub { font-size: 13px; opacity: 0.75; margin-bottom: 20px; }
+.vault-input {
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 15px;
+  font-family: var(--font-mono, monospace);
+  outline: none;
+}
+.vault-input:focus { border-color: #7c3aed; }
+.vault-input.hidden { display: none; }
+.vault-error { color: #ef4444; font-size: 13px; min-height: 18px; margin: 4px 0 12px; }
+.vault-hint { font-size: 11px; margin-top: 14px; opacity: 0.55; }

@@ -2,13 +2,27 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src http: https:; object-src 'none'; base-uri 'self'; form-action 'none';">
   <title>BTCQ · 比特币量子</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <canvas id="particle-canvas"></canvas>
   <div class="titlebar"></div>
+
+  <!-- 钱包锁屏 / 设置主密码 -->
+  <div id="vault-overlay" class="vault-overlay hidden">
+    <div class="vault-card glass">
+      <div class="vault-icon">⚛</div>
+      <h2 class="vault-title" id="vault-title">解锁钱包</h2>
+      <p class="vault-sub" id="vault-sub">输入主密码以解密本机钱包私钥</p>
+      <input type="password" id="vault-password" class="vault-input" placeholder="主密码" autocomplete="off" />
+      <input type="password" id="vault-password2" class="vault-input hidden" placeholder="再输入一次" autocomplete="off" />
+      <div class="vault-error muted" id="vault-error"></div>
+      <button class="btn btn-primary btn-lg btn-block" id="vault-submit-btn" data-action="vault-submit">解锁</button>
+      <p class="vault-hint muted" id="vault-hint">主密码不会上传，仅用于本机加密私钥（AES-256-GCM + scrypt）</p>
+    </div>
+  </div>
 
   <div class="app-shell">
     <!-- 左侧菜单 -->
@@ -63,7 +77,8 @@
           <span class="status-dot" id="conn-dot"></span>
           <span id="conn-text">未连接节点</span>
         </div>
-        <div class="sidebar-version">v0.1.5</div>
+        <button class="btn btn-ghost btn-sm" data-action="vault-lock" id="vault-lock-btn" style="margin-top:8px;width:100%">🔒 立即锁定</button>
+        <div class="sidebar-version">v0.1.7</div>
       </div>
     </aside>
 
@@ -295,7 +310,7 @@
       <section class="page hidden" data-page="mining">
         <header class="page-header">
           <h1>量子挖矿</h1>
-          <p class="page-sub">挖矿 100% 在 IBM Quantum 真量子机上完成 · 你的本机只跑界面</p>
+          <p class="page-sub">挖矿 100% 在真量子机上完成 可选 IBM Quantum </p>
         </header>
 
         <!-- 第 0 屏：大按钮"开始挖矿" -->
@@ -307,7 +322,7 @@
               你即将获得：每 20 分钟一个区块，每块 50 BTCQ 奖励
             </p>
             <p class="muted" style="font-size:13px;margin-bottom:24px">
-              全部计算在 IBM Quantum 量子机上完成，本机零负担
+              全部计算在真实量子机上完成，本机零负担
             </p>
             <button class="btn btn-primary btn-lg" data-action="mining-open-wizard"
                     style="font-size:16px;padding:16px 40px">
@@ -333,7 +348,7 @@
           <div class="mining-apikey-prompt hidden" id="mining-apikey-prompt">
             <div class="apikey-bigtitle">最后 10%</div>
             <p class="muted" style="margin-bottom:12px;font-size:14px">
-              填入你的 <strong>IBM Quantum API Token</strong> 即可开始挖矿
+              填入你的 <strong>量子计算机 API Token</strong> 即可开始挖矿
             </p>
             <textarea id="mining-token-input" rows="3"
               placeholder="ApiKey-xxxx... 或长串字符（仅本机存储）"></textarea>
@@ -347,11 +362,11 @@
               </summary>
               <div class="apikey-help">
                 <p class="muted" style="font-size:12px;margin:8px 0">
-                  IBM Quantum 免费送你每月 600 秒量子机时间，注册无需信用卡。
+                 免费量子机时间，免费启动
                 </p>
                 <ol style="font-size:13px;color:var(--text-secondary);padding-left:20px;line-height:1.8">
-                  <li><a href="#" data-link="https://quantum.ibm.com">打开 quantum.ibm.com</a> 用邮箱注册（5 分钟）</li>
-                  <li>登录后，<a href="#" data-link="https://quantum.ibm.com/account">打开账户页</a> → API Token → Create token</li>
+                  <li><a href="#" data-link="https://quantum.ibm.com">打开 quantum.ibm.com</a> 用邮箱注册账号</li>
+                  <li>登录后，<a href="#" data-link="https://quantum.ibm.com/account">打开账户页创建apikey</a> → API Token → Create token</li>
                   <li>复制粘贴到上方输入框 → 点击启动</li>
                 </ol>
               </div>

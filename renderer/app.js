@@ -27,6 +27,9 @@ const $$ = sel => [...document.querySelectorAll(sel)];
 const fmtBTCQ = (atomic) => (Number(atomic) / 1e8).toLocaleString(undefined, { maximumFractionDigits: 8 });
 const shortAddr = (a) => a ? a.slice(0, 10) + '...' + a.slice(-6) : '0x...';
 const shortHash = (h) => h ? h.slice(0, 10) + '...' + h.slice(-6) : '—';
+// XSS 防护：拼到 innerHTML 模板里的所有用户/链上数据必须先过 esc()
+const ESC_MAP = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
+const esc = (v) => v == null ? '' : String(v).replace(/[&<>"']/g, ch => ESC_MAP[ch]);
 function fmtTime(ts) {
   const now = Date.now() / 1000;
   const diff = now - ts;
@@ -119,6 +122,14 @@ function boot() {
     if (link) { e.preventDefault(); btcq.openExternal(link.dataset.link); }
   });
 
+  // Vault：回车提交 + 拦截私钥模态框关闭时清空
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !$('#vault-overlay').classList.contains('hidden')) {
+      e.preventDefault();
+      Vault.submit();
+    }
+  });
+
   console.log('[boot] events bound');
 
   // 第三步：异步加载状态（独立失败安全）
@@ -139,6 +150,156 @@ function boot() {
 
   console.log('[boot] done');
 }
+
+// =============== Vault：钱包私钥加密 + 自动锁屏 ===============
+const Vault = {
+  locked: true,
+  password: null,                            // 仅内存，不持久化
+  IDLE_MS: 10 * 60 * 1000,                   // 10 分钟无操作 → 锁定
+  idleTimer: null,
+  mode: 'unlock',                            // 'unlock' | 'setup' | 'migrate'
+
+  show(mode) {
+    Vault.mode = mode;
+    const ov = $('#vault-overlay');
+    const title = $('#vault-title');
+    const sub = $('#vault-sub');
+    const p2 = $('#vault-password2');
+    const btn = $('#vault-submit-btn');
+    const err = $('#vault-error');
+    err.textContent = '';
+    $('#vault-password').value = '';
+    p2.value = '';
+    if (mode === 'setup') {
+      title.textContent = '设置主密码';
+      sub.textContent = '主密码用于加密本机钱包私钥（≥8 字符），不上传任何地方';
+      p2.classList.remove('hidden');
+      btn.textContent = '设置并继续';
+    } else if (mode === 'migrate') {
+      title.textContent = '加密现有钱包';
+      sub.textContent = '检测到老版本明文存储的钱包，请设置主密码以加密';
+      p2.classList.remove('hidden');
+      btn.textContent = '加密并继续';
+    } else {
+      title.textContent = '解锁钱包';
+      sub.textContent = '输入主密码以解密本机钱包私钥';
+      p2.classList.add('hidden');
+      btn.textContent = '解锁';
+    }
+    ov.classList.remove('hidden');
+    setTimeout(() => $('#vault-password').focus(), 50);
+  },
+
+  hide() { $('#vault-overlay').classList.add('hidden'); },
+
+  async submit() {
+    const pw = $('#vault-password').value;
+    const pw2 = $('#vault-password2').value;
+    const err = $('#vault-error');
+    err.textContent = '';
+    if (!pw || pw.length < 8) {
+      err.textContent = '密码至少 8 字符';
+      return;
+    }
+    if ((Vault.mode === 'setup' || Vault.mode === 'migrate') && pw !== pw2) {
+      err.textContent = '两次输入不一致';
+      return;
+    }
+    try {
+      if (Vault.mode === 'unlock') {
+        if (!btcq.checkVerifier(App.state.passwordVerifier, pw)) {
+          err.textContent = '密码错误';
+          return;
+        }
+        Vault.password = pw;
+        // 解密所有 wallet.encryptedKey 到内存
+        for (const w of App.state.wallets || []) {
+          if (w.encryptedKey) {
+            try { w.privateKey = btcq.decryptSecret(w.encryptedKey, pw); }
+            catch (e) { console.error('decrypt fail', w.address, e); }
+          }
+        }
+      } else {
+        // setup / migrate：生成 verifier，加密所有现有 wallets
+        const verifier = btcq.makeVerifier(pw);
+        for (const w of App.state.wallets || []) {
+          const priv = w.privateKey;
+          if (priv) {
+            w.encryptedKey = btcq.encryptSecret(priv, pw);
+          }
+        }
+        Vault.password = pw;
+        App.state.passwordVerifier = verifier;
+        // 持久化（不写明文 privateKey）
+        await btcq.setState({
+          passwordVerifier: verifier,
+          wallets: Vault._sanitize(App.state.wallets),
+        });
+      }
+      Vault.locked = false;
+      Vault.hide();
+      Vault.startIdleTimer();
+      // 重新设置 activeWallet（可能 priv 刚刚被注入）
+      const wallets = App.state.wallets || [];
+      if (wallets.length > 0) {
+        const idx = App.state.activeWalletIndex >= 0 ? App.state.activeWalletIndex : 0;
+        App.activeWallet = wallets[idx] || wallets[0];
+      }
+      if (App.currentPage in Pages) Pages[App.currentPage].refresh();
+      toast(Vault.mode === 'unlock' ? '✓ 已解锁' : '✓ 主密码已设置', 'success');
+    } catch (e) {
+      console.error('vault submit', e);
+      err.textContent = '出错：' + e.message;
+    }
+  },
+
+  // 保存到磁盘前剥掉明文 privateKey
+  _sanitize(wallets) {
+    return (wallets || []).map(w => ({
+      name: w.name,
+      address: w.address,
+      encryptedKey: w.encryptedKey,
+    }));
+  },
+
+  // 加密保存：当 vault 已解锁，且新增/更新钱包时调用
+  async persistWallets() {
+    if (Vault.locked || !Vault.password) return;
+    await btcq.setState({ wallets: Vault._sanitize(App.state.wallets) });
+  },
+
+  encryptNew(privateKey) {
+    if (Vault.locked || !Vault.password) throw new Error('钱包已锁定');
+    return btcq.encryptSecret(privateKey, Vault.password);
+  },
+
+  lock() {
+    if (Vault.locked) return;
+    // 清掉内存中的明文 privateKey
+    for (const w of App.state.wallets || []) {
+      try { delete w.privateKey; } catch {}
+    }
+    if (App.activeWallet) try { delete App.activeWallet.privateKey; } catch {}
+    Vault.password = null;
+    Vault.locked = true;
+    Vault.show('unlock');
+    if (Vault.idleTimer) { clearTimeout(Vault.idleTimer); Vault.idleTimer = null; }
+  },
+
+  startIdleTimer() {
+    const reset = () => {
+      if (Vault.idleTimer) clearTimeout(Vault.idleTimer);
+      Vault.idleTimer = setTimeout(() => Vault.lock(), Vault.IDLE_MS);
+    };
+    if (!Vault._bound) {
+      ['mousemove','keydown','click','scroll','touchstart'].forEach(ev =>
+        document.addEventListener(ev, reset, { passive: true })
+      );
+      Vault._bound = true;
+    }
+    reset();
+  },
+};
 
 async function loadInitialState() {
   if (!window.btcq) {
@@ -191,7 +352,19 @@ async function loadInitialState() {
     await btcq.setState({ nodeUrl: App.nodeUrl });
   }
   await Node.checkConnection();
-  // 重刷当前页
+
+  // ==== Vault 锁屏决策 ====
+  const hasVerifier = !!App.state.passwordVerifier;
+  const plaintextWallets = (App.state.wallets || []).filter(w => w.privateKey);
+  if (hasVerifier) {
+    Vault.show('unlock');
+    return;                           // 等用户解锁后才刷页
+  } else if (plaintextWallets.length > 0) {
+    Vault.show('migrate');
+    return;
+  }
+  // 全新用户、无钱包：不强制设置密码，留到首次创建钱包时
+  Vault.locked = false;
   if (App.currentPage in Pages) Pages[App.currentPage].refresh();
 }
 
@@ -211,6 +384,8 @@ Node.checkConnection = async function () {
 // =============== Action 处理 ===============
 async function handleAction(action, btn) {
   switch (action) {
+    case 'vault-submit':       return Vault.submit();
+    case 'vault-lock':         return Vault.lock();
     case 'open-ibm':           return btcq.openExternal('https://quantum.ibm.com');
     case 'open-token':         return btcq.openExternal('https://quantum.ibm.com/account');
     case 'modal-close':        return $$('.modal-backdrop').forEach(m => m.classList.add('hidden'));
@@ -281,10 +456,10 @@ Pages.overview = {
           node.innerHTML = `<div class="empty-state muted">暂无区块</div>`;
         } else {
           node.innerHTML = blocks.map(b => `
-            <div class="block-mini-row" data-block-h="${b.height}">
-              <span class="height">#${b.height}</span>
-              <span>slot ${b.slot}</span>
-              <span class="ts">${fmtTime(b.timestamp)}</span>
+            <div class="block-mini-row" data-block-h="${esc(b.height)}">
+              <span class="height">#${esc(b.height)}</span>
+              <span>slot ${esc(b.slot)}</span>
+              <span class="ts">${esc(fmtTime(b.timestamp))}</span>
             </div>
           `).join('');
           node.querySelectorAll('[data-block-h]').forEach(el => {
@@ -331,9 +506,9 @@ Pages.overview = {
     ];
     grid.innerHTML = tributes.map(t => `
       <div class="tribute-item">
-        <div class="tribute-name">${t.name}</div>
-        <div class="muted" style="font-size:11px">${t.role}</div>
-        <div class="tribute-amount">${t.amount} BTCQ</div>
+        <div class="tribute-name">${esc(t.name)}</div>
+        <div class="muted" style="font-size:11px">${esc(t.role)}</div>
+        <div class="tribute-amount">${esc(t.amount)} BTCQ</div>
       </div>
     `).join('');
   },
@@ -362,14 +537,14 @@ Pages.explorer = {
       const end = Math.max(0, this.total - 1 - App.explorer.page * App.explorer.perPage);
       const blocks = (await Node.blocks(start, end)).reverse();
       $('#explorer-blocks-tbody').innerHTML = blocks.map(b => `
-        <tr data-block-h="${b.height}">
-          <td class="height-cell">#${b.height}</td>
-          <td>${b.slot}</td>
-          <td>${fmtTime(b.timestamp)}</td>
-          <td class="hash-cell">${shortHash(b.block_hash)}</td>
-          <td class="hash-cell">${shortAddr(b.proposer_address)}</td>
-          <td>${(b.transactions || []).length}</td>
-          <td>${parseFloat(b.xeb_score).toFixed(2)}</td>
+        <tr data-block-h="${esc(b.height)}">
+          <td class="height-cell">#${esc(b.height)}</td>
+          <td>${esc(b.slot)}</td>
+          <td>${esc(fmtTime(b.timestamp))}</td>
+          <td class="hash-cell">${esc(shortHash(b.block_hash))}</td>
+          <td class="hash-cell">${esc(shortAddr(b.proposer_address))}</td>
+          <td>${esc((b.transactions || []).length)}</td>
+          <td>${esc(parseFloat(b.xeb_score).toFixed(2))}</td>
         </tr>
       `).join('');
       $('#explorer-blocks-tbody').querySelectorAll('tr[data-block-h]').forEach(tr => {
@@ -378,7 +553,7 @@ Pages.explorer = {
       $('#explorer-page-info').textContent = `${start}–${end} / 共 ${this.total}`;
     } catch (e) {
       $('#explorer-blocks-tbody').innerHTML =
-        `<tr><td colspan="7" class="muted" style="text-align:center;padding:32px">节点拉取失败：${e.message}</td></tr>`;
+        `<tr><td colspan="7" class="muted" style="text-align:center;padding:32px">节点拉取失败：${esc(e.message)}</td></tr>`;
     }
   },
   async refreshMempool() {
@@ -395,12 +570,12 @@ Pages.explorer = {
       }
       tbody.innerHTML = txs.map(tx => `
         <tr>
-          <td>${tx.kind}</td>
-          <td class="hash-cell">${shortAddr(tx.sender)}</td>
-          <td class="hash-cell">${shortAddr(tx.recipient)}</td>
-          <td>${fmtBTCQ(tx.amount)}</td>
-          <td>${tx.nonce}</td>
-          <td class="hash-cell">${shortHash(tx.tx_hash)}</td>
+          <td>${esc(tx.kind)}</td>
+          <td class="hash-cell">${esc(shortAddr(tx.sender))}</td>
+          <td class="hash-cell">${esc(shortAddr(tx.recipient))}</td>
+          <td>${esc(fmtBTCQ(tx.amount))}</td>
+          <td>${esc(tx.nonce)}</td>
+          <td class="hash-cell">${esc(shortHash(tx.tx_hash))}</td>
         </tr>
       `).join('');
     } catch (e) {
@@ -433,26 +608,26 @@ Pages.explorer = {
       $('#explorer-block-detail').classList.remove('hidden');
       const txList = (block.transactions || []).map((tx, i) => `
         <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:8px;margin-top:8px;font-size:12px">
-          <div><strong>#${i}</strong> · ${tx.kind} · ${fmtBTCQ(tx.amount)} BTCQ</div>
+          <div><strong>#${esc(i)}</strong> · ${esc(tx.kind)} · ${esc(fmtBTCQ(tx.amount))} BTCQ</div>
           <div class="muted" style="font-family:var(--font-mono);font-size:11px;margin-top:4px">
-            from: ${tx.sender}<br>to: ${tx.recipient}<br>nonce: ${tx.nonce}
+            from: ${esc(tx.sender)}<br>to: ${esc(tx.recipient)}<br>nonce: ${esc(tx.nonce)}
           </div>
         </div>
       `).join('') || '<div class="muted" style="margin-top:8px">无交易</div>';
       $('#block-detail-content').innerHTML = `
-        <h2 style="margin-bottom:16px">区块 #${block.height}</h2>
+        <h2 style="margin-bottom:16px">区块 #${esc(block.height)}</h2>
         <dl>
-          <dt>高度</dt><dd>${block.height}</dd>
-          <dt>Slot</dt><dd>${block.slot}</dd>
-          <dt>时间戳</dt><dd>${new Date(block.timestamp * 1000).toLocaleString('zh-CN')}</dd>
-          <dt>区块哈希</dt><dd>${block.block_hash}</dd>
-          <dt>前一区块哈希</dt><dd>${block.prev_hash}</dd>
-          <dt>State Root</dt><dd>${block.state_root || '—'}</dd>
-          <dt>出块人</dt><dd>${block.proposer_address}</dd>
-          <dt>XEB</dt><dd>${parseFloat(block.xeb_score).toFixed(4)}</dd>
-          <dt>奖励</dt><dd>${fmtBTCQ(block.reward || 0)} BTCQ</dd>
-          <dt>电路</dt><dd>n=${block.n_qubits}, depth=${block.depth}, samples=${block.n_samples}</dd>
-          <dt>交易（${(block.transactions || []).length} 笔）</dt><dd>${txList}</dd>
+          <dt>高度</dt><dd>${esc(block.height)}</dd>
+          <dt>Slot</dt><dd>${esc(block.slot)}</dd>
+          <dt>时间戳</dt><dd>${esc(new Date(block.timestamp * 1000).toLocaleString('zh-CN'))}</dd>
+          <dt>区块哈希</dt><dd>${esc(block.block_hash)}</dd>
+          <dt>前一区块哈希</dt><dd>${esc(block.prev_hash)}</dd>
+          <dt>State Root</dt><dd>${esc(block.state_root || '—')}</dd>
+          <dt>出块人</dt><dd>${esc(block.proposer_address)}</dd>
+          <dt>XEB</dt><dd>${esc(parseFloat(block.xeb_score).toFixed(4))}</dd>
+          <dt>奖励</dt><dd>${esc(fmtBTCQ(block.reward || 0))} BTCQ</dd>
+          <dt>电路</dt><dd>n=${esc(block.n_qubits)}, depth=${esc(block.depth)}, samples=${esc(block.n_samples)}</dd>
+          <dt>交易（${esc((block.transactions || []).length)} 笔）</dt><dd>${txList}</dd>
         </dl>
       `;
     } catch (e) { toast('区块加载失败: ' + e.message, 'error'); }
@@ -467,16 +642,28 @@ Pages.explorer = {
 
 // =============== 钱包（多账户，纯 JS） ===============
 const Wallet = {
+  // 创建/导入前确保 vault 已建立
+  async _ensureVault() {
+    if (!App.state.passwordVerifier) {
+      Vault.show('setup');
+      throw new Error('请先设置主密码');
+    }
+    if (Vault.locked) {
+      Vault.show('unlock');
+      throw new Error('请先解锁钱包');
+    }
+  },
   async create() {
     try {
+      await Wallet._ensureVault();
       const w = btcq.generateWallet();
       const wallets = App.state.wallets || [];
-      // 单调计数器：从 1 开始，永不重用，删除后下一个继续 +1
       const counter = (App.state.walletCounter || 0) + 1;
       const newWallet = {
         name: String(counter),
         address: w.address,
-        privateKey: w.privateKey,
+        privateKey: w.privateKey,                       // 内存
+        encryptedKey: Vault.encryptNew(w.privateKey),   // 持久化
       };
       wallets.push(newWallet);
       App.state.wallets = wallets;
@@ -484,7 +671,7 @@ const Wallet = {
       App.state.activeWalletIndex = wallets.length - 1;
       App.activeWallet = newWallet;
       await btcq.setState({
-        wallets,
+        wallets: Vault._sanitize(wallets),
         walletCounter: counter,
         activeWalletIndex: App.state.activeWalletIndex,
       });
@@ -496,6 +683,7 @@ const Wallet = {
   async importKey() {
     const k = $('#import-key-input').value.trim();
     try {
+      await Wallet._ensureVault();
       const w = btcq.walletFromPrivate(k);
       const wallets = App.state.wallets || [];
       if (wallets.find(x => x.address === w.address)) {
@@ -507,6 +695,7 @@ const Wallet = {
         name: String(counter),
         address: w.address,
         privateKey: w.privateKey,
+        encryptedKey: Vault.encryptNew(w.privateKey),
       };
       wallets.push(newWallet);
       App.state.wallets = wallets;
@@ -514,7 +703,7 @@ const Wallet = {
       App.state.activeWalletIndex = wallets.length - 1;
       App.activeWallet = newWallet;
       await btcq.setState({
-        wallets,
+        wallets: Vault._sanitize(wallets),
         walletCounter: counter,
         activeWalletIndex: App.state.activeWalletIndex,
       });
@@ -544,7 +733,7 @@ const Wallet = {
       App.state.activeWalletIndex -= 1;
     }
     await btcq.setState({
-      wallets,
+      wallets: Vault._sanitize(wallets),
       activeWalletIndex: App.state.activeWalletIndex,
     });
     toast('已删除', 'success');
@@ -588,24 +777,24 @@ Pages.wallet = {
     }
     // 渲染每个钱包
     list.innerHTML = wallets.map((w, i) => `
-      <div class="wallet-row-card ${i === App.state.activeWalletIndex ? 'active' : ''}" data-wallet-idx="${i}">
-        <div class="wallet-row-num">${w.name}</div>
+      <div class="wallet-row-card ${i === App.state.activeWalletIndex ? 'active' : ''}" data-wallet-idx="${esc(i)}">
+        <div class="wallet-row-num">${esc(w.name)}</div>
         <div class="wallet-row-info">
-          <code class="wallet-row-addr">${w.address}</code>
+          <code class="wallet-row-addr">${esc(w.address)}</code>
           ${i === App.state.activeWalletIndex ? '<span class="wallet-row-active-tag">活跃</span>' : ''}
           <div class="wallet-row-meta">
-            <span>余额: <strong id="bal-${i}">读取中...</strong></span>
-            <span>抵押: <strong id="stk-${i}">—</strong></span>
-            <span>nonce: <strong id="nonce-${i}">—</strong></span>
+            <span>余额: <strong id="bal-${esc(i)}">读取中...</strong></span>
+            <span>抵押: <strong id="stk-${esc(i)}">—</strong></span>
+            <span>nonce: <strong id="nonce-${esc(i)}">—</strong></span>
           </div>
         </div>
         <div class="wallet-row-actions">
           ${i !== App.state.activeWalletIndex
-            ? `<button class="btn btn-tertiary" data-wallet-action="set-active" data-wallet-idx="${i}">设为活跃</button>`
+            ? `<button class="btn btn-tertiary" data-wallet-action="set-active" data-wallet-idx="${esc(i)}">设为活跃</button>`
             : ''}
-          <button class="btn btn-secondary" data-wallet-action="show-key" data-wallet-idx="${i}">显示私钥</button>
-          <button class="btn btn-secondary" data-wallet-action="copy-addr" data-wallet-idx="${i}">复制地址</button>
-          <button class="btn btn-ghost" data-wallet-action="remove" data-wallet-idx="${i}">删除</button>
+          <button class="btn btn-secondary" data-wallet-action="show-key" data-wallet-idx="${esc(i)}">显示私钥</button>
+          <button class="btn btn-secondary" data-wallet-action="copy-addr" data-wallet-idx="${esc(i)}">复制地址</button>
+          <button class="btn btn-ghost" data-wallet-action="remove" data-wallet-idx="${esc(i)}">删除</button>
         </div>
       </div>
     `).join('');
@@ -705,11 +894,11 @@ Pages.send = {
         <div class="tx-row">
           <div class="tx-icon ${tx.kind === 'transfer' ? 'out' : 'stake'}">${tx.kind === 'transfer' ? '↑' : '⚓'}</div>
           <div class="tx-info">
-            <div class="tx-kind">${tx.kind}</div>
-            <div class="tx-meta">to ${shortAddr(tx.recipient)} · nonce ${tx.nonce}</div>
+            <div class="tx-kind">${esc(tx.kind)}</div>
+            <div class="tx-meta">to ${esc(shortAddr(tx.recipient))} · nonce ${esc(tx.nonce)}</div>
           </div>
-          <div class="tx-amount">${fmtBTCQ(tx.amount)}</div>
-          <div class="muted" style="font-size:11px">${shortHash(tx.tx_hash)}</div>
+          <div class="tx-amount">${esc(fmtBTCQ(tx.amount))}</div>
+          <div class="muted" style="font-size:11px">${esc(shortHash(tx.tx_hash))}</div>
         </div>
       `).join('');
     } catch (e) {
@@ -926,7 +1115,11 @@ const Mining = {
       if (body.querySelector('.log-empty')) body.innerHTML = '';
       const line = document.createElement('div');
       line.className = 'log-line ' + level;
-      line.innerHTML = `<span class="ts">${ts}</span>${text}`;
+      const tsSpan = document.createElement('span');
+      tsSpan.className = 'ts';
+      tsSpan.textContent = ts;
+      line.appendChild(tsSpan);
+      line.appendChild(document.createTextNode(text));
       body.appendChild(line);
       while (body.children.length > 200) body.removeChild(body.firstChild);
       body.scrollTop = body.scrollHeight;
@@ -1005,7 +1198,7 @@ Pages.network = {
       $('#net-head').textContent = info.head_hash;
       $('#net-peers').textContent = info.peers.length;
       $('#net-peer-list').innerHTML = info.peers.length
-        ? info.peers.map(p => `<div class="peer-row"><span>${p}</span><span class="peer-status">在线</span></div>`).join('')
+        ? info.peers.map(p => `<div class="peer-row"><span>${esc(p)}</span><span class="peer-status">在线</span></div>`).join('')
         : '<div class="empty-state muted">暂无 peer</div>';
     } catch (e) {
       Node.checkConnection();

@@ -42,8 +42,7 @@ function createWindow() {
   mainWindow.loadFile('renderer/index.html');
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  // v0.1.5：默认打开 DevTools 方便用户排查（v0.2 会去掉）
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
+  if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
 
   // 把 renderer 的 console 转发到主进程的 stdout，便于从终端看错
   mainWindow.webContents.on('console-message', (e, level, message, line, sourceId) => {
@@ -73,7 +72,25 @@ ipcMain.handle('state:set', (_e, patch) => {
   saveState(s);
   return s;
 });
-ipcMain.handle('shell:open', (_e, url) => shell.openExternal(url));
+// URL 校验：只允许 https，且必须是白名单域名
+const URL_HOST_ALLOWLIST = new Set([
+  'quantum.ibm.com',
+  'github.com',
+  'raw.githubusercontent.com',
+  'docs.github.com',
+  'docs.quantum.ibm.com',
+  'btcq.io',
+]);
+function safeOpenExternal(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== 'https:') return false;
+    if (!URL_HOST_ALLOWLIST.has(u.hostname)) return false;
+    shell.openExternal(u.toString());
+    return true;
+  } catch { return false; }
+}
+ipcMain.handle('shell:open', (_e, url) => safeOpenExternal(url));
 ipcMain.handle('dialog:select-folder', async () => {
   const r = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
   return r.canceled ? null : r.filePaths[0];
@@ -130,13 +147,13 @@ ipcMain.handle('mining:install_btcq', async () => {
   emitMining('install-progress', { msg: '准备下载 BTCQ 协议代码...' });
   fs.mkdirSync(BTCQ_DIR, { recursive: true });
   return new Promise((resolve) => {
-    // 已存在则 git pull，否则 git clone
     const exists = fs.existsSync(path.join(BTCQ_DIR, '.git'));
-    const cmd = exists
-      ? `cd "${BTCQ_DIR}" && git pull --rebase`
-      : `git clone --depth 1 https://github.com/douyamv/BTCQ "${BTCQ_DIR}"`;
-    emitMining('install-progress', { msg: `执行: ${cmd}` });
-    const proc = spawn(cmd, [], { shell: true });
+    // 不再用 shell:true 拼字符串，全部用 argv 数组
+    const args = exists
+      ? ['-C', BTCQ_DIR, 'pull', '--rebase']
+      : ['clone', '--depth', '1', 'https://github.com/douyamv/BTCQ', BTCQ_DIR];
+    emitMining('install-progress', { msg: `执行: git ${args.join(' ')}` });
+    const proc = spawn('git', args, { shell: false });
     proc.stdout.on('data', d => emitMining('install-progress', { msg: d.toString().trim() }));
     proc.stderr.on('data', d => emitMining('install-progress', { msg: d.toString().trim() }));
     proc.on('close', code => {
@@ -171,19 +188,24 @@ ipcMain.handle('mining:install_btcq', async () => {
 ipcMain.handle('mining:save_token', async (_e, token) => {
   const py = findPython();
   if (!py) return { ok: false, error: '未检测到 python3' };
+  if (typeof token !== 'string' || token.length < 8 || token.length > 4096) {
+    return { ok: false, error: 'Token 格式无效' };
+  }
   return new Promise((resolve) => {
+    // Token 走 stdin，不进命令行；脚本仅是固定字符串，不拼接 user 数据
     const code = `
-import sys
+import sys, json
+payload = json.loads(sys.stdin.read())
 try:
     from qiskit_ibm_runtime import QiskitRuntimeService
-    QiskitRuntimeService.save_account(channel='ibm_quantum_platform', token=${JSON.stringify(token)}, overwrite=True, set_as_default=True)
+    QiskitRuntimeService.save_account(channel='ibm_quantum_platform', token=payload['token'], overwrite=True, set_as_default=True)
     svc = QiskitRuntimeService()
     backends = [b.name for b in svc.backends(simulator=False, operational=True)]
     print('OK ' + ','.join(backends))
 except Exception as e:
     print('ERR ' + str(e))
 `;
-    const proc = spawn(py.cmd, ['-c', code], { cwd: BTCQ_DIR });
+    const proc = spawn(py.cmd, ['-c', code], { cwd: BTCQ_DIR, shell: false });
     let out = ''; let err = '';
     proc.stdout.on('data', d => out += d.toString());
     proc.stderr.on('data', d => err += d.toString());
@@ -196,24 +218,29 @@ except Exception as e:
         resolve({ ok: false, error: trimmed.replace(/^ERR /, '') || err.trim() });
       }
     });
+    proc.stdin.write(JSON.stringify({ token }));
+    proc.stdin.end();
   });
 });
 
 ipcMain.handle('mining:export_wallet', async (_e, privateKey) => {
-  // 把 GUI 的钱包私钥写为 BTCQ Python 端能读的 wallet.json
+  // 把 GUI 的钱包私钥写为 BTCQ Python 端能读的 wallet.json（私钥走 stdin，绝不进命令行）
   const py = findPython();
   if (!py) return { ok: false, error: '未检测到 python3' };
+  if (typeof privateKey !== 'string') return { ok: false, error: '私钥格式无效' };
+  const hex = privateKey.replace(/^0x/, '');
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) return { ok: false, error: '私钥必须是 32 字节 hex' };
   return new Promise((resolve) => {
     const code = `
 import sys, json
-sys.path.insert(0, ${JSON.stringify(BTCQ_DIR)})
+payload = json.loads(sys.stdin.read())
+sys.path.insert(0, payload['btcq_dir'])
 from btcq.wallet import Wallet
-priv = ${JSON.stringify(privateKey.replace('0x', ''))}
-w = Wallet(bytes.fromhex(priv))
-w.save(${JSON.stringify(path.join(BTCQ_DIR, 'wallet.json'))})
+w = Wallet(bytes.fromhex(payload['priv']))
+w.save(payload['wallet_path'])
 print('OK ' + w.address_hex())
 `;
-    const proc = spawn(py.cmd, ['-c', code]);
+    const proc = spawn(py.cmd, ['-c', code], { shell: false });
     let out = ''; let err = '';
     proc.stdout.on('data', d => out += d.toString());
     proc.stderr.on('data', d => err += d.toString());
@@ -222,6 +249,12 @@ print('OK ' + w.address_hex())
       if (last.startsWith('OK')) resolve({ ok: true, address: last.slice(3) });
       else resolve({ ok: false, error: err || out });
     });
+    proc.stdin.write(JSON.stringify({
+      priv: hex,
+      btcq_dir: BTCQ_DIR,
+      wallet_path: path.join(BTCQ_DIR, 'wallet.json'),
+    }));
+    proc.stdin.end();
   });
 });
 
