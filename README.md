@@ -1,12 +1,29 @@
 # BTCQ Miner
 
-> 跨平台量子挖矿桌面客户端（macOS / Windows / Linux）—— 现代化仪表盘 + 内置区块浏览器 + 完整钱包功能
+> 跨平台量子挖矿桌面客户端（macOS / Linux / Windows）—— 现代化仪表盘 + 内置区块浏览器 + 完整钱包功能
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![electron](https://img.shields.io/badge/electron-33+-blue.svg)
-![status](https://img.shields.io/badge/status-v0.1.4-green)
+![status](https://img.shields.io/badge/status-v0.1.7-green)
 
 BTCQ Miner 是 [BTCQ 比特币量子](https://github.com/douyamv/BTCQ) 的官方桌面客户端。
+
+---
+
+## ⚡ 一键安装并启动
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/douyamv/BTCQ-Miner/main/install.sh | bash
+```
+
+自动完成：检测系统 → 安装 Node.js + Git → 下载 BTCQ Miner → `npm install` → 自动启动。
+
+> 不想自动启动？追加 `--no-launch`：
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/douyamv/BTCQ-Miner/main/install.sh | bash -s -- --no-launch
+> ```
+
+启动后默认进入"概览"页 — 不需要登录。要挖矿就进「挖矿」菜单，按提示填一次 IBM Quantum API Token。
 
 ---
 
@@ -15,6 +32,7 @@ BTCQ Miner 是 [BTCQ 比特币量子](https://github.com/douyamv/BTCQ) 的官方
 * **左侧菜单 + 右侧功能** — 现代化仪表盘式布局，全部功能一屏可达
 * **零门槛进入** — 无需登录、无需 API key 即可使用大部分功能（区块浏览器、钱包、转账）
 * **挖矿** — 仅当真要挖矿时引导用户注册 IBM Quantum（每月 600 秒免费）
+* **私钥本地加密** — AES-256-GCM + scrypt 主密码保护；10 分钟无操作自动锁定
 * **完整功能集**：
   - 📊 概览 — 链状态、钱包余额、最近区块、致敬榜
   - 🔍 区块浏览器 — 区块列表 / 详情 / 交易 / mempool
@@ -28,7 +46,7 @@ BTCQ Miner 是 [BTCQ 比特币量子](https://github.com/douyamv/BTCQ) 的官方
 
 ---
 
-## 快速开始
+## 手动安装
 
 ```bash
 git clone https://github.com/douyamv/BTCQ-Miner.git
@@ -36,10 +54,6 @@ cd BTCQ-Miner
 npm install
 npm start
 ```
-
-启动后默认进入"概览"页 — 不需要登录。
-
-如果要挖矿，进入「挖矿」菜单，按引导 3 步注册 IBM Quantum。
 
 ---
 
