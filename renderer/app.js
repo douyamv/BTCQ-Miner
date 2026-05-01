@@ -147,13 +147,32 @@ async function loadInitialState() {
   }
   App.state = await btcq.getState() || {};
   console.log('[state] loaded', Object.keys(App.state));
-  if (App.state.walletAddress && App.state.walletPrivateKey) {
-    App.activeWallet = {
-      address: App.state.walletAddress,
-      privateKey: App.state.walletPrivateKey,
-    };
-    console.log('[state] wallet', App.activeWallet.address);
+
+  // 多钱包：state.wallets 是数组，state.activeWalletIndex 当前选中
+  if (!Array.isArray(App.state.wallets)) {
+    // 老版本兼容：单钱包升级到数组
+    if (App.state.walletAddress && App.state.walletPrivateKey) {
+      App.state.wallets = [{
+        name: '0',
+        address: App.state.walletAddress,
+        privateKey: App.state.walletPrivateKey,
+      }];
+      App.state.activeWalletIndex = 0;
+      await btcq.setState({
+        wallets: App.state.wallets,
+        activeWalletIndex: 0,
+      });
+    } else {
+      App.state.wallets = [];
+      App.state.activeWalletIndex = -1;
+    }
   }
+  if (App.state.wallets.length > 0) {
+    const idx = App.state.activeWalletIndex >= 0 ? App.state.activeWalletIndex : 0;
+    App.activeWallet = App.state.wallets[idx] || App.state.wallets[0];
+    console.log('[state] active wallet:', App.activeWallet.address);
+  }
+
   // 默认连本地节点（如未配置）
   App.nodeUrl = App.state.nodeUrl || 'http://localhost:8333';
   if (!App.state.nodeUrl) {
@@ -429,14 +448,27 @@ Pages.explorer = {
   },
 };
 
-// =============== 钱包（纯 JS） ===============
+// =============== 钱包（多账户，纯 JS） ===============
 const Wallet = {
   async create() {
     try {
       const w = btcq.generateWallet();
-      App.activeWallet = { address: w.address, privateKey: w.privateKey };
-      await btcq.setState({ walletAddress: w.address, walletPrivateKey: w.privateKey });
-      toast('钱包已创建：' + shortAddr(w.address), 'success');
+      const wallets = App.state.wallets || [];
+      // 默认名 = 当前列表长度（数字 0,1,2,...）
+      const newWallet = {
+        name: String(wallets.length),
+        address: w.address,
+        privateKey: w.privateKey,
+      };
+      wallets.push(newWallet);
+      App.state.wallets = wallets;
+      App.state.activeWalletIndex = wallets.length - 1;
+      App.activeWallet = newWallet;
+      await btcq.setState({
+        wallets,
+        activeWalletIndex: App.state.activeWalletIndex,
+      });
+      toast(`钱包 #${newWallet.name} 已创建：${shortAddr(w.address)}`, 'success');
       Pages.wallet.refresh();
       Pages.overview.refresh();
     } catch (e) { console.error(e); toast('创建失败：' + e.message, 'error'); }
@@ -445,49 +477,136 @@ const Wallet = {
     const k = $('#import-key-input').value.trim();
     try {
       const w = btcq.walletFromPrivate(k);
-      App.activeWallet = { address: w.address, privateKey: w.privateKey };
-      await btcq.setState({ walletAddress: w.address, walletPrivateKey: w.privateKey });
+      const wallets = App.state.wallets || [];
+      // 检查重复
+      if (wallets.find(x => x.address === w.address)) {
+        toast('该地址已存在', 'error');
+        return;
+      }
+      const newWallet = {
+        name: String(wallets.length),
+        address: w.address,
+        privateKey: w.privateKey,
+      };
+      wallets.push(newWallet);
+      App.state.wallets = wallets;
+      App.state.activeWalletIndex = wallets.length - 1;
+      App.activeWallet = newWallet;
+      await btcq.setState({
+        wallets,
+        activeWalletIndex: App.state.activeWalletIndex,
+      });
       $('#modal-import-key').classList.add('hidden');
       $('#import-key-input').value = '';
-      toast('钱包已导入：' + shortAddr(w.address), 'success');
+      toast(`钱包 #${newWallet.name} 已导入：${shortAddr(w.address)}`, 'success');
       Pages.wallet.refresh();
     } catch (e) { toast('导入失败：' + e.message, 'error'); }
   },
-  showKey() {
-    if (!App.activeWallet?.privateKey) { toast('未保存私钥', 'error'); return; }
-    $('#show-key-content').textContent = App.activeWallet.privateKey;
+  async setActive(index) {
+    if (index < 0 || index >= (App.state.wallets || []).length) return;
+    App.state.activeWalletIndex = index;
+    App.activeWallet = App.state.wallets[index];
+    await btcq.setState({ activeWalletIndex: index });
+    toast(`已切换到钱包 #${App.activeWallet.name}`, 'success');
+    Pages.wallet.refresh();
+  },
+  async remove(index) {
+    if (!confirm(`确定删除钱包 #${App.state.wallets[index]?.name}？私钥将永久丢失（请先备份！）`)) return;
+    const wallets = (App.state.wallets || []).slice();
+    wallets.splice(index, 1);
+    App.state.wallets = wallets;
+    if (App.state.activeWalletIndex === index) {
+      App.state.activeWalletIndex = wallets.length > 0 ? 0 : -1;
+      App.activeWallet = wallets.length > 0 ? wallets[0] : null;
+    } else if (App.state.activeWalletIndex > index) {
+      App.state.activeWalletIndex -= 1;
+    }
+    await btcq.setState({
+      wallets,
+      activeWalletIndex: App.state.activeWalletIndex,
+    });
+    toast('已删除', 'success');
+    Pages.wallet.refresh();
+  },
+  showKey(index) {
+    const w = App.state.wallets?.[index];
+    if (!w?.privateKey) { toast('未存储私钥', 'error'); return; }
+    $('#show-key-content').textContent = w.privateKey;
+    $('#show-key-content').dataset.copyText = w.privateKey;
     $('#modal-show-key').classList.remove('hidden');
   },
-  copyAddr(btn) {
-    if (!App.activeWallet) return;
-    navigator.clipboard.writeText(App.activeWallet.address);
-    if (btn) { btn.textContent = '✓'; setTimeout(() => btn.textContent = '📋', 1200); }
+  copyAddr(index, btn) {
+    const w = App.state.wallets?.[index];
+    if (!w) return;
+    navigator.clipboard.writeText(w.address);
+    if (btn) { const old = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = old, 1200); }
+    toast('地址已复制', 'success');
   },
   copyShownKey() {
-    if (!App.activeWallet?.privateKey) return;
-    navigator.clipboard.writeText(App.activeWallet.privateKey);
-    toast('已复制', 'success');
+    const text = $('#show-key-content').dataset.copyText || $('#show-key-content').textContent;
+    navigator.clipboard.writeText(text);
+    toast('已复制到剪贴板', 'success');
   },
 };
 
 Pages.wallet = {
-  refresh() {
-    if (!App.activeWallet) {
-      $('#wallet-empty').classList.remove('hidden');
-      $('#wallet-active').classList.add('hidden');
+  async refresh() {
+    const list = $('#wallet-list');
+    const wallets = App.state.wallets || [];
+    if (wallets.length === 0) {
+      list.innerHTML = `
+        <div class="card glass">
+          <div class="empty-hero" style="padding:40px 24px">
+            <div class="empty-icon">◈</div>
+            <h2>还没有钱包</h2>
+            <p class="muted">点击右上角创建第一个钱包</p>
+          </div>
+        </div>`;
       return;
     }
-    $('#wallet-empty').classList.add('hidden');
-    $('#wallet-active').classList.remove('hidden');
-    $('#wallet-active-addr').textContent = App.activeWallet.address;
-    $('#wallet-bal-liquid').textContent = '— BTCQ';
-    $('#wallet-bal-staked').textContent = '— BTCQ';
-    $('#wallet-bal-cooling').textContent = '— BTCQ';
-    $('#wallet-bal-total').textContent = '— BTCQ';
-    $('#wallet-tx-history').innerHTML =
-      App.nodeConnected
-        ? `<div class="empty-state muted">余额查询需节点端点 /address/{addr} （v0.5 上）。<br>当前可在「区块浏览器」搜索您的地址相关区块。</div>`
-        : `<div class="empty-state muted">未连接节点。在「设置」配置节点 URL 后查看完整历史。</div>`;
+    // 渲染每个钱包
+    list.innerHTML = wallets.map((w, i) => `
+      <div class="wallet-row-card ${i === App.state.activeWalletIndex ? 'active' : ''}" data-wallet-idx="${i}">
+        <div class="wallet-row-num">${w.name}</div>
+        <div class="wallet-row-info">
+          <code class="wallet-row-addr">${w.address}</code>
+          ${i === App.state.activeWalletIndex ? '<span class="wallet-row-active-tag">活跃</span>' : ''}
+          <div class="wallet-row-meta">
+            <span>余额: <strong id="bal-${i}">读取中...</strong></span>
+            <span>抵押: <strong id="stk-${i}">—</strong></span>
+            <span>nonce: <strong id="nonce-${i}">—</strong></span>
+          </div>
+        </div>
+        <div class="wallet-row-actions">
+          ${i !== App.state.activeWalletIndex
+            ? `<button class="btn btn-tertiary" data-wallet-action="set-active" data-wallet-idx="${i}">设为活跃</button>`
+            : ''}
+          <button class="btn btn-secondary" data-wallet-action="show-key" data-wallet-idx="${i}">显示私钥</button>
+          <button class="btn btn-secondary" data-wallet-action="copy-addr" data-wallet-idx="${i}">复制地址</button>
+          <button class="btn btn-ghost" data-wallet-action="remove" data-wallet-idx="${i}">删除</button>
+        </div>
+      </div>
+    `).join('');
+    // 绑定按钮
+    list.querySelectorAll('[data-wallet-action]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.walletIdx);
+        const action = btn.dataset.walletAction;
+        if (action === 'set-active') Wallet.setActive(idx);
+        else if (action === 'show-key') Wallet.showKey(idx);
+        else if (action === 'copy-addr') Wallet.copyAddr(idx, btn);
+        else if (action === 'remove') Wallet.remove(idx);
+      });
+    });
+    // 异步拉余额（每个钱包独立请求节点）
+    if (App.nodeConnected) {
+      for (let i = 0; i < wallets.length; i++) {
+        // 节点暂无 /address/{addr} 端点。v0.2 加。这里展示 dash 表示功能待实现
+        const balEl = document.getElementById(`bal-${i}`);
+        if (balEl) balEl.textContent = '需节点 /address 端点';
+      }
+    }
   },
 };
 
